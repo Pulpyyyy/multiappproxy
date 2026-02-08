@@ -42,15 +42,9 @@ jobs:
           args: |
             --addon \
             --amd64 \
-      - name: Publish builder
-        uses: home-assistant/builder@2025.11.0
-        with:
-          args: |
-            --addon \
-            --all \
-            --docker-hub "${{ env.REGISTRY }}" \
+            --aarch64 \
             --target ${{ matrix.addon }} \
+            --dockerhub-check \
             --docker-hub ${{ env.REPOSITORY }} \
-            --docker-hub-check \
             --docker-user ${{ secrets.DOCKERHUB_USERNAME }} \
             --docker-password ${{ secrets.DOCKERHUB_TOKEN }}
