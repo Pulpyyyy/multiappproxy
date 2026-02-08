@@ -38,4 +38,4 @@ schema:
       rewrite: bool?
       token: str?
   debug: "bool?"
-image: "ghcr.io/{arch}-addon-multiappproxy"
+image: "docker.io/pulpyyyy//multiappproxy-{arch}"
