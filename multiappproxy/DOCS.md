@@ -1,8 +1,9 @@
 # 🚀 Multi-App Proxy
+![GitHub release (with filter)](https://img.shields.io/github/v/release/Pulpyyyy/multiappproxy) ![GitHub](https://img.shields.io/github/license/Pulpyyyy/multiappproxy)
 
 Simple and elegant reverse proxy for managing multiple web applications from Home Assistant.
 
-![sample](.github/img/multiproxy.png)
+![sample](img/multiproxy.png)
 
 ### Features
 
@@ -15,22 +16,9 @@ Simple and elegant reverse proxy for managing multiple web applications from Hom
 - 🐛 Debug mode with real-time logs
 - 🖼️ Custom logos (emoji or image URL)
 
-### Installation
+## Add repository
 
-Add this repository to your Home Assistant add-on store:
-```
-https://github.com/Pulpyyyy/multiappproxy
-```
-
-## 📖 Table of Contents
-
-1. [Overview](#overview)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Detailed Parameters](#detailed-parameters)
-5. [Supported Applications](#supported-applications)
-6. [Troubleshooting](#troubleshooting)
-7. [Technical Architecture](#technical-architecture)
+[![`Addon Home Assistant`](https://raw.githubusercontent.com/Pulpyyyy/multiappproxy/refs/heads/main/.github/img/addon-ha.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FPulpyyyy%2Fmultiappproxy)
 
 ---
 

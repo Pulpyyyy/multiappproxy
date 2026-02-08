@@ -3,7 +3,7 @@
 
 Simple and elegant reverse proxy for managing multiple web applications from Home Assistant.
 
-![sample](.github/img/multiproxy.png)
+![sample](img/multiproxy.png)
 
 ### Features
 
