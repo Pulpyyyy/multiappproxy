@@ -43,8 +43,9 @@ jobs:
             --addon \
             --amd64 \
             --aarch64 \
-            --target ${{ matrix.addon }} \
-            --dockerhub-check \
+            --docker-hub "${{ env.REGISTRY }}" \
+            --target /data/${{ matrix.addon }} \
             --docker-hub ${{ env.REPOSITORY }} \
+            --docker-hub-check \
             --docker-user ${{ secrets.DOCKERHUB_USERNAME }} \
             --docker-password ${{ secrets.DOCKERHUB_TOKEN }}
