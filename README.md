@@ -18,9 +18,7 @@ Simple and elegant reverse proxy for managing multiple web applications from Hom
 ### Installation
 
 Add this repository to your Home Assistant add-on store:
-```
-[![Addon Home Assistant](https://raw.githubusercontent.com/Pulpyyyy/multiappproxy/refs/heads/main/.github/img/addon-ha.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FPulpyyyy%2Fmultiappproxy/)
-```
+![GitHub release (with filter)](https://img.shields.io/github/v/release/Pulpyyyy/multiappproxy) ![GitHub](https://img.shields.io/github/license/Pulpyyyy/multiappproxy)
 
 ## 📖 Table of Contents
 
