@@ -49,7 +49,7 @@ jobs:
             --addon \
             --all \
             --docker-hub "${{ env.REGISTRY }}" \
-            --target /data/${{ matrix.addon }} \
+            --target ${{ matrix.addon }} \
             --docker-hub ${{ env.REPOSITORY }} \
             --docker-hub-check \
             --docker-user ${{ secrets.DOCKERHUB_USERNAME }} \
