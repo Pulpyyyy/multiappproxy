@@ -1,0 +1,34 @@
+configuration:
+  debug:
+    name: Modalità debug
+    description: Visualizza i log in tempo reale sull'interfaccia.
+  apps:
+    name: Applicazioni
+    description: Elenco delle applicazioni da proxy.
+  apps.name:
+    name: Nome
+    description: Nome visualizzato dell'applicazione.
+  apps.url:
+    name: URL
+    description: URL backend dell'applicazione (http:// o https://).
+  apps.path:
+    name: Percorso
+    description: Percorso di accesso nel proxy (es. /myapp).
+  apps.description:
+    name: Descrizione
+    description: Breve descrizione visualizzata sulla scheda.
+  apps.icon:
+    name: Icona
+    description: Icona emoji (es. 🚀).
+  apps.logo:
+    name: Logo
+    description: URL dell'immagine (ha priorità sull'icona).
+  apps.category:
+    name: Categoria
+    description: Categoria di raggruppamento.
+  apps.token:
+    name: Token
+    description: Token di autenticazione (aggiunto alla query string).
+  apps.rewrite:
+    name: Riscrittura URL
+    description: Abilita riscrittura URL (obsoleto, configurare lato app).

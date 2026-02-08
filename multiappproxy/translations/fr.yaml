@@ -1,0 +1,34 @@
+configuration:
+  debug:
+    name: Mode debug
+    description: Afficher les logs en temps réel sur l'interface.
+  apps:
+    name: Applications
+    description: Liste des applications à proxifier.
+  apps.name:
+    name: Nom
+    description: Nom d'affichage de l'application.
+  apps.url:
+    name: URL
+    description: URL backend de l'application (http:// ou https://).
+  apps.path:
+    name: Chemin
+    description: Chemin d'accès dans le proxy (ex. /myapp).
+  apps.description:
+    name: Description
+    description: Courte description affichée sur la carte.
+  apps.icon:
+    name: Icône
+    description: Icône emoji (ex. 🚀).
+  apps.logo:
+    name: Logo
+    description: URL d'une image (prioritaire sur l'icône).
+  apps.category:
+    name: Catégorie
+    description: Catégorie de regroupement.
+  apps.token:
+    name: Token
+    description: Token d'authentification (ajouté en query string).
+  apps.rewrite:
+    name: Réécriture d'URL
+    description: Activer la réécriture d'URL (obsolète, configurer côté app).

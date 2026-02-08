@@ -1,0 +1,56 @@
+name: Build and Push Docker Images
+
+on:
+  workflow_run:
+    workflows: ["Update build.yaml on new submodule release"]
+    types:
+      - completed
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+  
+env:
+  REPOSITORY: pulpyyyy
+  REGISTRY: docker.io
+  
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_addon:
+    name: Build addon
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        addon: [multiappproxy]
+        
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6.0.1
+
+      - name: Get information
+        id: info
+        uses: home-assistant/actions/helpers/info@master
+        with:
+          path: "./${{ matrix.addon }}"
+          
+      - name: Publish builder
+        uses: home-assistant/builder@2025.11.0
+        with:
+          args: |
+            --addon \
+            --amd64 \
+      - name: Publish builder
+        uses: home-assistant/builder@2025.11.0
+        with:
+          args: |
+            --addon \
+            --all \
+            --docker-hub "${{ env.REGISTRY }}" \
+            --target /data/${{ matrix.addon }} \
+            --docker-hub ${{ env.REPOSITORY }} \
+            --docker-hub-check \
+            --docker-user ${{ secrets.DOCKERHUB_USERNAME }} \
+            --docker-password ${{ secrets.DOCKERHUB_TOKEN }}

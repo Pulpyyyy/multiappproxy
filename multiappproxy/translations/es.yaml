@@ -1,0 +1,34 @@
+configuration:
+  debug:
+    name: Modo de depuración
+    description: Mostrar registros en tiempo real en la interfaz.
+  apps:
+    name: Aplicaciones
+    description: Lista de aplicaciones para proxy.
+  apps.name:
+    name: Nombre
+    description: Nombre mostrado de la aplicación.
+  apps.url:
+    name: URL
+    description: URL backend de la aplicación (http:// o https://).
+  apps.path:
+    name: Ruta
+    description: Ruta de acceso en el proxy (ej. /myapp).
+  apps.description:
+    name: Descripción
+    description: Breve descripción mostrada en la tarjeta.
+  apps.icon:
+    name: Icono
+    description: Icono emoji (ej. 🚀).
+  apps.logo:
+    name: Logo
+    description: URL de la imagen (tiene prioridad sobre el icono).
+  apps.category:
+    name: Categoría
+    description: Categoría de agrupación.
+  apps.token:
+    name: Token
+    description: Token de autenticación (añadido a la query string).
+  apps.rewrite:
+    name: Reescritura de URL
+    description: Activar reescritura de URL (obsoleto, configurar en la app).

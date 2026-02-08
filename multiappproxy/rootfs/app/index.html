@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-App Proxy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: var(--primary-background-color, #111);
+            color: var(--primary-text-color, #e1e1e1);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 3rem; }
+        h1 { font-size: 2.5rem; font-weight: 300; margin-bottom: 0.5rem; color: var(--primary-color, #03a9f4); }
+        .subtitle { color: var(--secondary-text-color, #9b9b9b); font-size: 1rem; }
+        
+        .category-section { margin-bottom: 2rem; }
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--card-background-color, #1c1c1c);
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid var(--divider-color, #2c2c2c);
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+        .category-header:hover { border-color: var(--primary-color, #03a9f4); }
+        .category-icon { font-size: 1.5rem; }
+        .category-title { flex: 1; font-size: 1.3rem; font-weight: 500; }
+        .category-count { color: var(--secondary-text-color, #9b9b9b); font-size: 0.9rem; }
+        .category-toggle { font-size: 1.2rem; transition: transform 0.3s ease; }
+        .category-toggle.collapsed { transform: rotate(-90deg); }
+        
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .apps-grid.expanded { max-height: 5000px; opacity: 1; padding: 1rem 0; }
+        
+        .app-card {
+            background: var(--card-background-color, #1c1c1c);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid var(--divider-color, #2c2c2c);
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .app-card:hover { transform: translateY(-4px); box-shadow: 0 8px 16px rgba(0,0,0,0.3); border-color: var(--primary-color, #03a9f4); }
+        .app-icon { font-size: 3rem; margin-bottom: 1rem; display: block; }
+        .app-name { font-size: 1.3rem; font-weight: 500; margin-bottom: 0.5rem; }
+        .app-description { font-size: 0.9rem; color: var(--secondary-text-color, #9b9b9b); line-height: 1.4; }
+        .app-url { font-size: 0.8rem; color: var(--accent-color, #03a9f4); margin-top: 0.5rem; display: block; opacity: 0.7; }
+        .error, .loading { text-align: center; padding: 1rem; border-radius: 8px; margin: 2rem 0; }
+        .error { background: var(--error-color, #db4437); color: white; }
+        .loading { color: var(--secondary-text-color, #9b9b9b); }
+        .debug {
+            background: var(--card-background-color, #1c1c1c);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 2rem 0;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--secondary-text-color, #9b9b9b);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .debug.hidden { display: none; }
+        .debug-line { margin: 0.25rem 0; }
+        .app-logo {
+            width: 48px;
+            height: 48px;
+            object-fit: contain;
+            margin-bottom: 1rem;
+            display: block;
+        }
+        footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--divider-color, #2c2c2c); color: var(--secondary-text-color, #9b9b9b); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">Chargement des applications...</div>
+        <div id="error" class="error" style="display: none;">Erreur</div>
+        <div id="apps-container"></div>
+        <footer>🚀 Multi-App Proxy</footer>
+        <div id="debug" class="debug"><div class="debug-line">🔍 Chargement...</div></div>
+    </div>
+    <script>
+        const debugDiv = document.getElementById('debug');
+        function log(msg) {
+            const line = document.createElement('div');
+            line.className = 'debug-line';
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            debugDiv.appendChild(line);
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+            console.log(msg);
+        }
+        
+        log('📄 Page loaded'); log(`📍 URL: ${window.location.href}`);
+        log(`📍 Pathname: ${window.location.pathname}`);
+        
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        log(`🏠 Base path: ${basePath || '/'}`);
+        
+        function toggleCategory(categoryId) {
+            const grid = document.getElementById(`grid-${categoryId}`);
+            const toggle = document.getElementById(`toggle-${categoryId}`);
+            
+            if (grid.classList.contains('expanded')) {
+                grid.classList.remove('expanded');
+                toggle.classList.add('collapsed');
+            } else {
+                grid.classList.add('expanded');
+                toggle.classList.remove('collapsed');
+            }
+        }
+
+        async function loadApps() {
+            try {
+                const appsJsonUrl = basePath ? `${basePath}/apps.json` : './apps.json';
+                log(`🔄 Fetching: ${appsJsonUrl}`);
+                
+                const response = await fetch(appsJsonUrl);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                const apps = data.apps || data;
+                const debugMode = data.debug || false;
+                
+                if (!debugMode) {
+                    document.getElementById('debug').classList.add('hidden');
+                }
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                const categoriesOrder = [];
+                const categories = {};
+                apps.forEach(app => {
+                    const category = app.category || 'Autres';
+                    if (!categories[category]) {
+                        categories[category] = [];
+                        categoriesOrder.push(category);
+                    }
+                    categories[category].push(app);
+                });
+
+                const container = document.getElementById('apps-container');
+                container.innerHTML = ''; 
+
+                categoriesOrder.forEach((category, index) => {
+                    const categoryApps = categories[category];
+                    const categoryId = `cat-${index}`;
+                    
+                    // Dictionnaire strict par langue
+                    const categoryIcons = {
+                        // Français
+                        'Domotique': '🏠', 'Protocoles': '📡', 'Média': '🎥', 'Médias': '🎥', 'Outils': '🔧', 'Réseau': '🌐', 'Sécurité': '🔒', 'Autres': '📱',
+                        // English
+                        'Home Automation': '🏠', 'Protocols': '📡', 'Media': '🎥', 'Tools': '🔧', 'Network': '🌐', 'Security': '🔒', 'Others': '📱',
+                        // Deutsch
+                        'Hausautomation': '🏠', 'Protokolle': '📡', 'Medien': '🎥', 'Werkzeuge': '🔧', 'Netzwerk': '🌐', 'Sicherheit': '🔒', 'Sonstiges': '📱',
+                        // Español
+                        'Domótica': '🏠', 'Protocolos': '📡', 'Medios': '🎥', 'Herramientas': '🔧', 'Red': '🌐', 'Seguridad': '🔒', 'Otros': '📱',
+                        // Português
+                        'Domótica': '🏠', 'Protocolos': '📡', 'Mídia': '🎥', 'Ferramentas': '🔧', 'Rede': '🌐', 'Segurança': '🔒', 'Outros': '📱',
+                        // Italiano
+                        'Domotica': '🏠', 'Protocolli': '📡', 'Media': '🎥', 'Strumenti': '🔧', 'Rete': '🌐', 'Sicurezza': '🔒', 'Altri': '📱'
+                    };
+                    
+                    const categoryIcon = categoryIcons[category] || '📱';
+                    
+                    const section = document.createElement('div');
+                    section.className = 'category-section';
+                    
+                    section.innerHTML = `
+                        <div class="category-header" onclick="toggleCategory('${categoryId}')">
+                            <span class="category-icon">${categoryIcon}</span>
+                            <span class="category-title">${category}</span>
+                            <span class="category-count">${categoryApps.length}</span>
+                            <span class="category-toggle" id="toggle-${categoryId}">▼</span>
+                        </div>
+                        <div class="apps-grid expanded" id="grid-${categoryId}"></div>
+                    `;
+                    
+                    const grid = section.querySelector('.apps-grid');
+                    
+                    categoryApps.forEach(app => {
+                        const card = document.createElement('a');
+                        card.className = 'app-card';
+                        card.href = basePath ? `${basePath}${app.path}/` : `${app.path}/`;
+                        
+                        // Gestion Logo ou Icône sans bug de rendu
+                        let iconHtml = '';
+                        if (app.logo) {
+                            iconHtml = `<img src="${app.logo}" class="app-logo" alt="${app.name}">`;
+                        } else {
+                            iconHtml = `<span class="app-icon">${app.icon || '📱'}</span>`;
+                        }
+                        
+                        // URL visible uniquement en debug
+                        const urlHtml = debugMode ? `<span class="app-url">${app.url || app.path}</span>` : '';
+                        
+                        card.innerHTML = `
+                            ${iconHtml}
+                            <div class="app-name">${app.name}</div>
+                            ${app.description ? `<div class="app-description">${app.description}</div>` : ''}
+                            ${urlHtml}
+                        `;
+                        grid.appendChild(card);
+                    });
+                    
+                    container.appendChild(section);
+                });
+                
+                log('✅ Done');
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').textContent = error.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        loadApps();
+    </script>
+</body>
+</html>

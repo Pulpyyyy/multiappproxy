@@ -1,0 +1,34 @@
+configuration:
+  debug:
+    name: Debug mode
+    description: Display real-time logs on the interface.
+  apps:
+    name: Applications
+    description: List of applications to proxy.
+  apps.name:
+    name: Name
+    description: Application display name.
+  apps.url:
+    name: URL
+    description: Backend application URL (http:// or https://).
+  apps.path:
+    name: Path
+    description: Access path in the proxy (e.g., /myapp).
+  apps.description:
+    name: Description
+    description: Short description displayed on the card.
+  apps.icon:
+    name: Icon
+    description: Emoji icon (e.g., 🚀).
+  apps.logo:
+    name: Logo
+    description: Image URL (takes priority over icon).
+  apps.category:
+    name: Category
+    description: Grouping category.
+  apps.token:
+    name: Token
+    description: Authentication token (added to query string).
+  apps.rewrite:
+    name: URL rewrite
+    description: Enable URL rewriting (deprecated, configure app-side instead).
