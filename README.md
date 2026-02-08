@@ -1,4 +1,5 @@
 # 🚀 Multi-App Proxy
+![GitHub release (with filter)](https://img.shields.io/github/v/release/Pulpyyyy/multiappproxy) ![GitHub](https://img.shields.io/github/license/Pulpyyyy/multiappproxy)
 
 Simple and elegant reverse proxy for managing multiple web applications from Home Assistant.
 
