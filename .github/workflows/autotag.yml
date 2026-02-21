@@ -23,7 +23,7 @@ jobs:
       - name: Extract Version from YAML
         id: get_version
         run: |
-          VERSION=$(grep -oP '(?:version|VERSION):\s*\K[0-9]+\.[0-9]+\.[0-9]+' multiappproxy/config.yaml | head -n 1)
+          VERSION=$(grep -oP '(?:version|VERSION):\s*"?\K[0-9]+\.[0-9]+\.[0-9]+' multiappproxy/config.yaml | head -n 1)
 
           if [ -z "$VERSION" ]; then
             echo "❌ Error: Version not found in multiappproxy/config.yaml"

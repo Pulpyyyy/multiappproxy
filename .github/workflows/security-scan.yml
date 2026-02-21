@@ -40,7 +40,7 @@ jobs:
       - name: Get image ref
         id: info
         run: |
-          VERSION=$(grep -oP '(?:version|VERSION):\s*\K[0-9]+\.[0-9]+\.[0-9]+' ${{ inputs.addon }}/config.yaml | head -n 1)
+          VERSION=$(grep -oP '(?:version|VERSION):\s*"?\K[0-9]+\.[0-9]+\.[0-9]+' ${{ inputs.addon }}/config.yaml | head -n 1)
           if [ -z "$VERSION" ]; then
             echo "❌ Version not found in ${{ inputs.addon }}/config.yaml"
             exit 1
