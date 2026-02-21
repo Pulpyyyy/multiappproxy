@@ -6,6 +6,8 @@ on:
 jobs:
   update-base:
     uses: ./.github/workflows/update-base.yml
+    permissions:
+      contents: write
     secrets: inherit
 
   autotag:
