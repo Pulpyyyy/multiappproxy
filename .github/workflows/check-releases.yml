@@ -1,0 +1,42 @@
+name: Check for new base image
+
+on:
+  schedule:
+    - cron: '0 12 * * *' # Every day at noon UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  check-base:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for new base version
+        id: check
+        run: |
+          LATEST=$(curl -sL https://api.github.com/repos/home-assistant/docker-base/releases/latest \
+            | grep '"tag_name"' \
+            | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+          CURRENT=$(grep -oP 'ghcr\.io/home-assistant/aarch64-base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
+
+          echo "🔍 Latest: $LATEST / Current: $CURRENT"
+
+          if [ "$LATEST" != "$CURRENT" ]; then
+            echo "🔄 New base image available: $CURRENT → $LATEST"
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Base image already up to date ($CURRENT)"
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger Release Pipeline
+        if: steps.check.outputs.changes == 'true'
+        run: gh workflow run orchestrator.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,37 @@
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-base:
+    uses: ./.github/workflows/update-base.yml
+    secrets: inherit
+
+  autotag:
+    needs: update-base
+    uses: ./.github/workflows/autotag.yml
+    secrets: inherit
+
+  build:
+    needs: autotag
+    uses: ./.github/workflows/builder.yaml
+    secrets: inherit
+
+  security-scan:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      addon: multiappproxy
+      blocking: false
+    secrets: inherit
+
+  release:
+    needs: [autotag, build]
+    if: always() && needs.autotag.result == 'success' && needs.build.result == 'success'
+    uses: ./.github/workflows/pre-release.yml
+    with:
+      addon: multiappproxy
+      prerelease: false
+    secrets: inherit

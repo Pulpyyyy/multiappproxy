@@ -1,0 +1,98 @@
+name: Update base image version
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  update-base:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest base image version
+        id: latest
+        run: |
+          LATEST=$(curl -sL https://api.github.com/repos/home-assistant/docker-base/releases/latest \
+            | grep '"tag_name"' \
+            | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+          if [ -z "$LATEST" ]; then
+            echo "❌ Could not fetch latest base version"
+            exit 1
+          fi
+          echo "VERSION=$LATEST" >> $GITHUB_OUTPUT
+          echo "🔍 Latest base version: $LATEST"
+
+      - name: Get current base image version
+        id: current
+        run: |
+          CURRENT=$(grep -oP 'ghcr\.io/home-assistant/aarch64-base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
+          echo "VERSION=$CURRENT" >> $GITHUB_OUTPUT
+          echo "📌 Current base version: $CURRENT"
+
+      - name: Update build.yaml
+        run: |
+          LATEST="${{ steps.latest.outputs.VERSION }}"
+          CURRENT="${{ steps.current.outputs.VERSION }}"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "✅ Base image already up to date ($CURRENT)"
+            echo "CHANGES=false" >> $GITHUB_ENV
+          else
+            sed -i "s|ghcr\.io/home-assistant/aarch64-base:[^\"]*|ghcr.io/home-assistant/aarch64-base:$LATEST|g" multiappproxy/build.yaml
+            sed -i "s|ghcr\.io/home-assistant/amd64-base:[^\"]*|ghcr.io/home-assistant/amd64-base:$LATEST|g" multiappproxy/build.yaml
+            echo "🔄 Base version: $CURRENT → $LATEST"
+            echo "- **home-assistant/docker-base** → [$LATEST](https://github.com/home-assistant/docker-base/releases/tag/$LATEST)" >> multiappproxy/bot_changelog.md
+            echo "CHANGES=true" >> $GITHUB_ENV
+          fi
+
+      - name: Increment addon version
+        if: env.CHANGES == 'true'
+        run: |
+          version=$(grep -E '^version:' "multiappproxy/config.yaml" | awk '{print $2}' | sed 's/"//g')
+          IFS='.' read -r major minor patch <<< "$version"
+          patch=$((patch + 1))
+          new_version="${major}.${minor}.${patch}"
+          sed -i "s/^version: .*/version: $new_version/" "multiappproxy/config.yaml"
+          echo "Version updated: $version -> $new_version"
+          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+
+          cp multiappproxy/CHANGELOG.md multiappproxy/old_CHANGELOG.md
+          echo -e "## $new_version\n" > multiappproxy/CHANGELOG.md
+
+          if [ -f multiappproxy/next_CHANGELOG.md ] && [ -s multiappproxy/next_CHANGELOG.md ]; then
+            echo "### 🚀 New Features" >> multiappproxy/CHANGELOG.md
+            cat multiappproxy/next_CHANGELOG.md >> multiappproxy/CHANGELOG.md
+            > multiappproxy/next_CHANGELOG.md
+          fi
+
+          echo -e "\n### 🛠️ Fixes & Updates\n" >> multiappproxy/CHANGELOG.md
+          cat multiappproxy/bot_changelog.md >> multiappproxy/CHANGELOG.md
+          rm multiappproxy/bot_changelog.md
+
+          if [ -f multiappproxy/fix_CHANGELOG.md ] && [ -s multiappproxy/fix_CHANGELOG.md ]; then
+            cat multiappproxy/fix_CHANGELOG.md >> multiappproxy/CHANGELOG.md
+            > multiappproxy/fix_CHANGELOG.md
+          fi
+
+          echo -e "\n --- \n" >> multiappproxy/CHANGELOG.md
+          cat multiappproxy/old_CHANGELOG.md >> multiappproxy/CHANGELOG.md
+          rm multiappproxy/old_CHANGELOG.md
+
+      - name: Commit and push changes
+        if: env.CHANGES == 'true'
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git pull
+          git add .
+          git diff --cached --quiet || git commit -m "Update base image to ${{ steps.latest.outputs.VERSION }}"
+          git push
