@@ -3,20 +3,20 @@ name: Release Pipeline
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  security-events: write
+
 jobs:
   update-base:
     uses: ./.github/workflows/update-base.yml
-    permissions:
-      contents: write
     secrets: inherit
 
   autotag:
     needs: update-base
     uses: ./.github/workflows/autotag.yml
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
     secrets: inherit
 
   build:
