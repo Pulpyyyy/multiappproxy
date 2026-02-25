@@ -1,3 +1,12 @@
+## 1.0.2
+
+
+### 🛠️ Fixes & Updates
+
+- **home-assistant/docker-base** → [2026.02.0](https://github.com/home-assistant/docker-base/releases/tag/2026.02.0)
+
+ --- 
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
