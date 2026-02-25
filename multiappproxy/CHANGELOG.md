@@ -1,5 +1,7 @@
-## 1.0.2
+## 1.0.1
 
+### Added
+- Protection of applications by password or admin account
 
 ### 🛠️ Fixes & Updates
 
