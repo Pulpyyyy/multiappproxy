@@ -25,7 +25,7 @@ jobs:
         
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v6
 
       - name: Get information
         id: info
@@ -34,7 +34,7 @@ jobs:
           path: "./${{ matrix.addon }}"
           
       - name: Publish builder
-        uses: home-assistant/builder@2025.11.0
+        uses: home-assistant/builder@2026.02.1
         with:
           args: |
             --addon \
