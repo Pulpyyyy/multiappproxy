@@ -9,33 +9,33 @@ bashio::log.info "=========================================="
 
 CONFIG_PATH=/data/options.json
 
-# Détecter le mode Ingress en vérifiant les variables d'environnement HA
+# Detect Ingress mode from the HA environment variable
 if bashio::var.has_value "$(bashio::addon.ingress_entry)"; then
     INGRESS_ENTRY=$(bashio::addon.ingress_entry)
-    bashio::log.info "Mode Ingress détecté: ${INGRESS_ENTRY}"
+    bashio::log.info "Ingress mode detected: ${INGRESS_ENTRY}"
     export INGRESS_ENTRY
 else
-    bashio::log.info "Mode Standalone"
+    bashio::log.info "Standalone mode"
     export INGRESS_ENTRY="/"
 fi
 
-bashio::log.info "Lecture de la configuration..."
-python3 /app/sync_config.py || bashio::log.warning "Sync config ignoré"
-python3 /app/json_to_yaml.py || bashio::exit.nok "Échec conversion JSON"
+bashio::log.info "Reading configuration..."
+python3 /app/sync_config.py || bashio::log.warning "Sync config skipped"
+python3 /app/json_to_yaml.py || bashio::exit.nok "JSON conversion failed"
 
-bashio::log.info "Génération de la configuration Nginx..."
-python3 /app/generate_config.py || bashio::exit.nok "Échec génération Nginx"
+bashio::log.info "Generating Nginx configuration..."
+python3 /app/generate_config.py || bashio::exit.nok "Nginx config generation failed"
 
 if [ ! -f /etc/nginx/nginx.conf ]; then
-    bashio::exit.nok "nginx.conf n'existe pas !"
+    bashio::exit.nok "nginx.conf does not exist!"
 fi
 
-bashio::log.info "Validation de la configuration..."
-nginx -t 2>&1 | grep -v "warn" || bashio::exit.nok "Configuration invalide"
+bashio::log.info "Validating configuration..."
+nginx -t 2>&1 | grep -v "warn" || bashio::exit.nok "Invalid Nginx configuration"
 
 APP_COUNT=$(jq '.apps | length' $CONFIG_PATH)
 bashio::log.info "=========================================="
-bashio::log.info "${APP_COUNT} application(s) configurée(s)"
+bashio::log.info "${APP_COUNT} application(s) configured"
 
 for i in $(seq 0 $(($APP_COUNT - 1))); do
     APP_NAME=$(jq -r ".apps[$i].name" $CONFIG_PATH)
@@ -44,4 +44,4 @@ for i in $(seq 0 $(($APP_COUNT - 1))); do
 done
 
 bashio::log.info "=========================================="
-bashio::log.info "Configuration terminée avec succès"
+bashio::log.info "Configuration completed successfully"

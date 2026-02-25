@@ -9,6 +9,8 @@ Simple and elegant reverse proxy for managing multiple web applications from Hom
 
 - 🔀 Multi-application reverse proxy with categories
 - 🔐 Token authentication (zigbee2mqtt-proxy compatible)
+- 🔑 Password-protected apps (SHA256, server-side verification)
+- 🛡️ Admin-only apps (hidden from non-admin HA users)
 - 🎨 Modern interface with Home Assistant theme
 - 📡 Native Home Assistant Ingress support
 - 🌐 Full WebSocket support (Z-Wave JS UI, Zigbee2MQTT, Matter Bridge, etc.)
@@ -32,6 +34,8 @@ Multi-App Proxy is a Home Assistant add-on that allows accessing multiple web ap
 - ✅ **Custom categories** with automatic icons
 - ✅ **Debug mode** with real-time logs
 - ✅ **Token authentication** (zigbee2mqtt-proxy style)
+- ✅ **Password-protected apps** (SHA256 hash, server-side only)
+- ✅ **Admin-only apps** (hidden from non-admin HA users)
 - ✅ **Auto-signed SSL support**
 - ✅ **Full WebSocket support** (Z-Wave, Zigbee, Matter)
 - ✅ **Custom logos** (emoji or image URL)
@@ -109,6 +113,21 @@ apps:
     logo: https://raw.githubusercontent.com/t0bst4r/matterbridge/main/frontend/public/matterbridge%2064x64.png
     path: /matter
     category: Protocols
+
+  - name: Portainer
+    url: http://portainer:9000
+    description: Docker management (admin only)
+    icon: 🐳
+    path: /portainer
+    category: Tools
+    admin: true        # Hidden from non-admin users
+
+  - name: Private App
+    url: http://192.168.1.200:5000
+    description: Password-protected application
+    icon: 🔒
+    path: /private
+    secret: MySecretPassword  # SHA256-hashed, never sent to the client
 ```
 
 ---
@@ -134,6 +153,8 @@ apps:
 | `category` | string | No | `Others` | Grouping category |
 | `token` | string | No | - | Authentication token (added as query string) |
 | `rewrite` | boolean | No | `false` | URL rewriting (deprecated, use app-side config) |
+| `secret` | string | No | - | Password required to open the app (SHA256-hashed server-side, never sent to the client) |
+| `admin` | boolean | No | `false` | Hide this app from non-admin users (owner or system-admin group) |
 
 ### Categories and Icons
 
@@ -162,6 +183,39 @@ The following categories have automatic icons:
 - ✅ `/myapp` (no trailing slash)
 - ❌ `/myapp/` (with trailing slash)
 - ❌ `/my/long/path` (no sub-paths)
+
+### Password Protection
+
+Protect any app with a password using the `secret` field:
+
+```yaml
+- name: Private App
+  url: http://192.168.1.200:5000
+  path: /private
+  secret: MyPassword123
+```
+
+**How it works:**
+1. The user clicks the card — a password modal is shown
+2. The frontend POSTs to `/api/verify-secret` with the SHA256 hash of the entered password
+3. The backend compares hashes; on success the browser navigates to the app
+4. The plain-text password is never stored in `apps.json` or sent to the client
+
+### Admin-Only Apps
+
+Restrict an app's visibility to Home Assistant admin users:
+
+```yaml
+- name: Admin Tool
+  url: http://192.168.1.50:8080
+  path: /admin-tool
+  admin: true
+```
+
+**How it works:**
+- On page load, the frontend calls `/api/user` to get the current user's admin status
+- Apps with `admin: true` are silently omitted from the rendered grid for non-admin users
+- A user is considered admin if `is_owner: true` or `group_ids` contains `system-admin` in `/config/.storage/auth`
 
 ### Token Authentication
 
@@ -329,8 +383,9 @@ Home Assistant Ingress
 1. **Home Assistant** → `/data/options.json`
 2. **sync_config.py** → YAML ↔ JSON sync
 3. **json_to_yaml.py** → `/app/config.yml`
-4. **generate_config.py** → `/etc/nginx/nginx.conf` + `/app/apps.json`
-5. **index.html** → Loads `apps.json` and displays interface
+4. **generate_config.py** → `/etc/nginx/nginx.conf` + `/app/apps.json` + `/app/secrets.json`
+5. **api_server.py** (port 8088) → `/api/user` (admin check) + `/api/verify-secret` (password check)
+6. **index.html** → Loads `apps.json`, calls `/api/user`, renders interface
 
 ### Internal DNS
 
@@ -343,14 +398,6 @@ Allows using:
 - `http://addon-name.local`
 - `http://hostname.local`
 - `http://192.168.1.X`
-
-### Security ACL
-
-Only Home Assistant Supervisor can access:
-```nginx
-allow 172.30.32.2;
-deny all;
-```
 
 ### Ingress Mode
 
@@ -382,6 +429,20 @@ You can edit `multi-app-proxy.yaml` directly:
 ---
 
 ## 🔐 Security
+
+### Password Protection (`secret`)
+
+- Password is SHA256-hashed at startup; the plain value is discarded
+- Only the hash is stored in `/app/secrets.json` (server-side, never served to the browser)
+- Verification happens via `POST /api/verify-secret` — the frontend sends the plain password over HTTPS and the backend compares hashes
+- A correct password grants navigation to the app URL for that browser session
+
+### Admin Visibility (`admin`)
+
+- Admin status is determined by reading `/config/.storage/auth` directly (requires `map: config:rw`)
+- A user is admin if `is_owner: true` or `'system-admin' in group_ids`
+- Result is cached per user for 5 minutes to avoid repeated file reads
+- Non-admin users never receive a filtered-out app in `apps.json` — filtering happens client-side after the `/api/user` call
 
 ### Token Authentication
 
@@ -483,6 +544,13 @@ GitHub Issues: https://github.com/Pulpyyyy/multiappproxy/issues
 ---
 
 ## 📜 Changelog
+
+### v1.0.5
+- ✅ Password-protected apps (`secret` field, SHA256 server-side)
+- ✅ Admin-only apps (`admin` field, reads `/config/.storage/auth`)
+- ✅ Bug fix: navigation after password validation now goes to the app
+- ✅ All code comments translated to English
+- ✅ Translations updated for all 6 languages
 
 ### v1.0.4 (2026-02-08)
 - ✅ YAML order preserved

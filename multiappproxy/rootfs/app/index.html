@@ -91,16 +91,97 @@
             display: block;
         }
         footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--divider-color, #2c2c2c); color: var(--secondary-text-color, #9b9b9b); font-size: 0.9rem; }
+
+        /* Admin / secret badge on cards */
+        .app-card { position: relative; }
+        .card-badge {
+            position: absolute;
+            top: 0.6rem;
+            right: 0.6rem;
+            font-size: 1rem;
+            line-height: 1;
+            opacity: 0.75;
+        }
+
+        /* Password modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-card {
+            background: var(--card-background-color, #1c1c1c);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 12px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+        }
+        .modal-title { font-size: 1.2rem; font-weight: 500; margin-bottom: 0.3rem; }
+        .modal-subtitle { font-size: 0.9rem; color: var(--secondary-text-color, #9b9b9b); margin-bottom: 1.5rem; }
+        .modal-input {
+            width: 100%;
+            background: var(--primary-background-color, #111);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--primary-text-color, #e1e1e1);
+            font-size: 1rem;
+            outline: none;
+            box-sizing: border-box;
+            margin-bottom: 0.75rem;
+            transition: border-color 0.2s;
+        }
+        .modal-input:focus { border-color: var(--primary-color, #03a9f4); }
+        .modal-input.error { border-color: var(--error-color, #db4437); animation: shake 0.3s; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            25% { transform: translateX(-6px); }
+            75% { transform: translateX(6px); }
+        }
+        .modal-error { font-size: 0.85rem; color: var(--error-color, #db4437); margin-bottom: 0.75rem; min-height: 1.2em; }
+        .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 0.5rem; }
+        .modal-btn {
+            padding: 0.6rem 1.4rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: opacity 0.2s;
+        }
+        .modal-btn:hover { opacity: 0.85; }
+        .modal-btn-cancel { background: var(--divider-color, #2c2c2c); color: var(--primary-text-color, #e1e1e1); }
+        .modal-btn-submit { background: var(--primary-color, #03a9f4); color: #fff; }
+        .modal-btn-submit:disabled { opacity: 0.5; cursor: default; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="loading" class="loading">Chargement des applications...</div>
-        <div id="error" class="error" style="display: none;">Erreur</div>
+        <div id="loading" class="loading">Loading applications...</div>
+        <div id="error" class="error" style="display: none;">Error</div>
         <div id="apps-container"></div>
         <footer>🚀 Multi-App Proxy</footer>
-        <div id="debug" class="debug"><div class="debug-line">🔍 Chargement...</div></div>
     </div>
+
+    <div class="modal-overlay" id="secret-modal" role="dialog" aria-modal="true">
+        <div class="modal-card">
+            <div class="modal-title" id="modal-app-name"></div>
+            <div class="modal-subtitle">Enter the password to access this application.</div>
+            <input type="password" class="modal-input" id="modal-password" placeholder="Password" autocomplete="off">
+            <div class="modal-error" id="modal-error"></div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" id="modal-cancel">Cancel</button>
+                <button class="modal-btn modal-btn-submit" id="modal-submit">Open</button>
+            </div>
+        </div>
+    </div>
+    <div id="debug" class="debug"><div class="debug-line">🔍 Loading...</div></div>
     <script>
         const debugDiv = document.getElementById('debug');
         function log(msg) {
@@ -111,17 +192,79 @@
             debugDiv.scrollTop = debugDiv.scrollHeight;
             console.log(msg);
         }
-        
+
         log('📄 Page loaded'); log(`📍 URL: ${window.location.href}`);
         log(`📍 Pathname: ${window.location.pathname}`);
-        
+
         const basePath = window.location.pathname.replace(/\/$/, '');
         log(`🏠 Base path: ${basePath || '/'}`);
-        
+
+        // ── Password modal ──────────────────────────────────────────────────
+        const modal        = document.getElementById('secret-modal');
+        const modalName    = document.getElementById('modal-app-name');
+        const modalInput   = document.getElementById('modal-password');
+        const modalError   = document.getElementById('modal-error');
+        const modalSubmit  = document.getElementById('modal-submit');
+        const modalCancel  = document.getElementById('modal-cancel');
+        let _pendingAppUrl = '';
+
+        function openModal(app, appUrl) {
+            _pendingAppUrl = appUrl;
+            modalName.textContent = '🔐 ' + app.name;
+            modalInput.value = '';
+            modalError.textContent = '';
+            modalInput.classList.remove('error');
+            modalSubmit.disabled = false;
+            modal.classList.add('active');
+            setTimeout(() => modalInput.focus(), 50);
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            _pendingAppUrl = '';
+        }
+
+        async function submitSecret() {
+            const password = modalInput.value;
+            if (!password) return;
+            modalSubmit.disabled = true;
+            modalError.textContent = '';
+            modalInput.classList.remove('error');
+            try {
+                const apiUrl = basePath ? `${basePath}/api/verify-secret` : '/api/verify-secret';
+                const res = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: _pendingAppUrl.replace(basePath, '').replace(/\/$/, ''), password })
+                });
+                const data = await res.json();
+                if (data.valid) {
+                    const targetUrl = _pendingAppUrl;
+                    closeModal();
+                    window.location.href = targetUrl;
+                } else {
+                    modalError.textContent = 'Incorrect password.';
+                    modalInput.classList.add('error');
+                    modalInput.value = '';
+                    setTimeout(() => modalInput.classList.remove('error'), 400);
+                    modalSubmit.disabled = false;
+                    modalInput.focus();
+                }
+            } catch (e) {
+                modalError.textContent = 'Verification error.';
+                modalSubmit.disabled = false;
+            }
+        }
+
+        modalCancel.addEventListener('click', closeModal);
+        modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+        modalSubmit.addEventListener('click', submitSecret);
+        modalInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitSecret(); });
+
+        // ── Categories ──────────────────────────────────────────────────────
         function toggleCategory(categoryId) {
-            const grid = document.getElementById(`grid-${categoryId}`);
+            const grid   = document.getElementById(`grid-${categoryId}`);
             const toggle = document.getElementById(`toggle-${categoryId}`);
-            
             if (grid.classList.contains('expanded')) {
                 grid.classList.remove('expanded');
                 toggle.classList.add('collapsed');
@@ -131,28 +274,45 @@
             }
         }
 
+        // ── Main loading ────────────────────────────────────────────────────
         async function loadApps() {
             try {
                 const appsJsonUrl = basePath ? `${basePath}/apps.json` : './apps.json';
                 log(`🔄 Fetching: ${appsJsonUrl}`);
-                
+
                 const response = await fetch(appsJsonUrl);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
+
                 const data = await response.json();
                 const apps = data.apps || data;
                 const debugMode = data.debug || false;
-                
+
                 if (!debugMode) {
                     document.getElementById('debug').classList.add('hidden');
                 }
-                
+
+                // Fetch current user's admin status from the backend API
+                let isAdmin = false;
+                try {
+                    const apiUrl = basePath ? `${basePath}/api/user` : '/api/user';
+                    const userRes = await fetch(apiUrl);
+                    if (userRes.ok) {
+                        const userInfo = await userRes.json();
+                        isAdmin = userInfo.is_admin === true;
+                        log(`👤 User: ${userInfo.name || 'unknown'} | Admin: ${isAdmin}`);
+                    }
+                } catch (e) {
+                    log(`⚠️ Could not check admin status: ${e.message}`);
+                }
+
                 document.getElementById('loading').style.display = 'none';
-                
+
                 const categoriesOrder = [];
                 const categories = {};
                 apps.forEach(app => {
-                    const category = app.category || 'Autres';
+                    // Admin filter: hide admin-only apps from non-admin users
+                    if (app.admin && !isAdmin) return;
+                    const category = app.category || 'Others';
                     if (!categories[category]) {
                         categories[category] = [];
                         categoriesOrder.push(category);
@@ -161,33 +321,32 @@
                 });
 
                 const container = document.getElementById('apps-container');
-                container.innerHTML = ''; 
+                container.innerHTML = '';
 
                 categoriesOrder.forEach((category, index) => {
                     const categoryApps = categories[category];
                     const categoryId = `cat-${index}`;
-                    
-                    // Dictionnaire strict par langue
+
                     const categoryIcons = {
-                        // Français
+                        // French
                         'Domotique': '🏠', 'Protocoles': '📡', 'Média': '🎥', 'Médias': '🎥', 'Outils': '🔧', 'Réseau': '🌐', 'Sécurité': '🔒', 'Autres': '📱',
                         // English
                         'Home Automation': '🏠', 'Protocols': '📡', 'Media': '🎥', 'Tools': '🔧', 'Network': '🌐', 'Security': '🔒', 'Others': '📱',
-                        // Deutsch
+                        // German
                         'Hausautomation': '🏠', 'Protokolle': '📡', 'Medien': '🎥', 'Werkzeuge': '🔧', 'Netzwerk': '🌐', 'Sicherheit': '🔒', 'Sonstiges': '📱',
-                        // Español
+                        // Spanish
                         'Domótica': '🏠', 'Protocolos': '📡', 'Medios': '🎥', 'Herramientas': '🔧', 'Red': '🌐', 'Seguridad': '🔒', 'Otros': '📱',
-                        // Português
+                        // Portuguese
                         'Domótica': '🏠', 'Protocolos': '📡', 'Mídia': '🎥', 'Ferramentas': '🔧', 'Rede': '🌐', 'Segurança': '🔒', 'Outros': '📱',
-                        // Italiano
+                        // Italian
                         'Domotica': '🏠', 'Protocolli': '📡', 'Media': '🎥', 'Strumenti': '🔧', 'Rete': '🌐', 'Sicurezza': '🔒', 'Altri': '📱'
                     };
-                    
+
                     const categoryIcon = categoryIcons[category] || '📱';
-                    
+
                     const section = document.createElement('div');
                     section.className = 'category-section';
-                    
+
                     section.innerHTML = `
                         <div class="category-header" onclick="toggleCategory('${categoryId}')">
                             <span class="category-icon">${categoryIcon}</span>
@@ -197,26 +356,43 @@
                         </div>
                         <div class="apps-grid expanded" id="grid-${categoryId}"></div>
                     `;
-                    
+
                     const grid = section.querySelector('.apps-grid');
-                    
+
                     categoryApps.forEach(app => {
+                        const appUrl = basePath ? `${basePath}${app.path}/` : `${app.path}/`;
+
                         const card = document.createElement('a');
                         card.className = 'app-card';
-                        card.href = basePath ? `${basePath}${app.path}/` : `${app.path}/`;
-                        
-                        // Gestion Logo ou Icône sans bug de rendu
+
+                        if (app.has_secret) {
+                            // Password-protected card: intercept click to show modal
+                            card.href = '#';
+                            card.addEventListener('click', e => {
+                                e.preventDefault();
+                                openModal(app, appUrl);
+                            });
+                        } else {
+                            card.href = appUrl;
+                        }
+
+                        // Logo image takes priority over emoji icon
                         let iconHtml = '';
                         if (app.logo) {
                             iconHtml = `<img src="${app.logo}" class="app-logo" alt="${app.name}">`;
                         } else {
                             iconHtml = `<span class="app-icon">${app.icon || '📱'}</span>`;
                         }
-                        
-                        // URL visible uniquement en debug
+
+                        // Status badges (admin-only, password-protected)
+                        const adminBadge = app.admin ? '<span class="card-badge" title="Admin only">🛡️</span>' : '';
+                        const secretBadge = app.has_secret ? '<span class="card-badge" title="Password protected" style="right:' + (app.admin ? '2.2rem' : '0.6rem') + '">🔐</span>' : '';
+
+                        // Backend URL shown only in debug mode
                         const urlHtml = debugMode ? `<span class="app-url">${app.url || app.path}</span>` : '';
-                        
+
                         card.innerHTML = `
+                            ${adminBadge}${secretBadge}
                             ${iconHtml}
                             <div class="app-name">${app.name}</div>
                             ${app.description ? `<div class="app-description">${app.description}</div>` : ''}
@@ -224,10 +400,10 @@
                         `;
                         grid.appendChild(card);
                     });
-                    
+
                     container.appendChild(section);
                 });
-                
+
                 log('✅ Done');
             } catch (error) {
                 log(`❌ Error: ${error.message}`);

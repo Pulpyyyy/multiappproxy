@@ -5,10 +5,7 @@ FROM $BUILD_FROM
 RUN apk add --no-cache \
     nginx \
     python3 \
-    py3-pip \
-    py3-yaml \
-    jq \
-    bash
+    py3-yaml
 
 # Créer les répertoires nécessaires
 RUN mkdir -p /app /run/nginx /var/log/nginx

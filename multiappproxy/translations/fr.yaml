@@ -32,3 +32,12 @@ configuration:
   apps.rewrite:
     name: Réécriture d'URL
     description: Activer la réécriture d'URL (obsolète, configurer côté app).
+  apps.secret:
+    name: Mot de passe
+    description: >
+      Mot de passe requis pour accéder à cette application. Laisser vide pour désactiver la protection par mot de passe.
+  apps.admin:
+    name: Admins uniquement
+    description: >
+      Quand cette option est activée, l'application est masquée pour les
+      utilisateurs non-administrateurs.

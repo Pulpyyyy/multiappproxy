@@ -5,12 +5,12 @@
 
 bashio::log.info "Starting nginx..."
 
-# Démarrer nginx en arrière-plan
+# Run nginx in the foreground (s6 manages the process)
 nginx -g "daemon off;" &
 NGINX_PID=$!
 
-# Suivre les logs
+# Tail logs so they appear in the s6 journal
 tail -f /var/log/nginx/access.log /var/log/nginx/error.log &
 
-# Attendre nginx
+# Wait for nginx to exit
 wait $NGINX_PID

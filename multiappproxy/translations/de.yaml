@@ -32,3 +32,12 @@ configuration:
   apps.rewrite:
     name: URL-Umschreibung
     description: URL-Umschreibung aktivieren (veraltet, auf App-Seite konfigurieren).
+  apps.secret:
+    name: Passwort
+    description: >
+      Passwort zum Zugriff auf diese Anwendung. Leer lassen, um den Passwortschutz zu deaktivieren.
+  apps.admin:
+    name: Nur Admins
+    description: >
+      Wenn aktiviert, ist diese Anwendung für Nicht-Administrator-Benutzer
+      ausgeblendet.

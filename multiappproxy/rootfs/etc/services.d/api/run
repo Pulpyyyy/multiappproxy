@@ -1,0 +1,7 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Start API server (admin check + secret verification)
+# ==============================================================================
+
+bashio::log.info "Starting API server on 127.0.0.1:8088..."
+exec python3 -u /app/api_server.py

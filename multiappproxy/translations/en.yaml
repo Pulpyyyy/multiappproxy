@@ -32,3 +32,11 @@ configuration:
   apps.rewrite:
     name: URL rewrite
     description: Enable URL rewriting (deprecated, configure app-side instead).
+  apps.secret:
+    name: Password
+    description: >
+      Password required to access this application. Leave empty to disable password protection.
+  apps.admin:
+    name: Admin only
+    description: >
+      When enabled, this application is hidden from non-admin users.

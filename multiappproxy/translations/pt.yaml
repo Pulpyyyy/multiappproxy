@@ -32,3 +32,12 @@ configuration:
   apps.rewrite:
     name: Reescrita de URL
     description: Ativar reescrita de URL (obsoleto, configurar no lado da app).
+  apps.secret:
+    name: Senha
+    description: >
+      Senha necessária para acessar esta aplicação. Deixar vazio para desativar a proteção por senha.
+  apps.admin:
+    name: Apenas admins
+    description: >
+      Quando ativado, esta aplicação fica oculta para utilizadores não
+      administradores.

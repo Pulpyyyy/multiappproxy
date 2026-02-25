@@ -32,3 +32,12 @@ configuration:
   apps.rewrite:
     name: Riscrittura URL
     description: Abilita riscrittura URL (obsoleto, configurare lato app).
+  apps.secret:
+    name: Password
+    description: >
+      Password richiesta per accedere a questa applicazione. Lasciare vuoto per disabilitare la protezione con password.
+  apps.admin:
+    name: Solo admin
+    description: >
+      Quando attivato, questa applicazione è nascosta agli utenti non
+      amministratori.
