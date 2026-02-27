@@ -1,3 +1,12 @@
+## 1.0.2
+
+
+### 🛠️ Fixes & Updates
+
+- **hassio-addons/addon-base** → [v20.0.1](https://github.com/hassio-addons/addon-base/releases/tag/v20.0.1)
+
+ --- 
+
 ## 1.0.5
 
 
