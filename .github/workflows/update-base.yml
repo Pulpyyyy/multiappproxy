@@ -22,7 +22,7 @@ jobs:
       - name: Get latest base image version
         id: latest
         run: |
-          LATEST=$(curl -sL https://api.github.com/repos/home-assistant/docker-base/releases/latest \
+          LATEST=$(curl -sL https://api.github.com/repos/hassio-addons/addon-base/releases/latest \
             | grep '"tag_name"' \
             | sed 's/.*"tag_name": "\(.*\)".*/\1/')
           if [ -z "$LATEST" ]; then
@@ -35,7 +35,7 @@ jobs:
       - name: Get current base image version
         id: current
         run: |
-          CURRENT=$(grep -oP 'ghcr\.io/home-assistant/aarch64-base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
+          CURRENT=$(grep -oP 'ghcr\.io/hassio-addons/base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
           echo "VERSION=$CURRENT" >> $GITHUB_OUTPUT
           echo "📌 Current base version: $CURRENT"
 
@@ -47,10 +47,9 @@ jobs:
             echo "✅ Base image already up to date ($CURRENT)"
             echo "CHANGES=false" >> $GITHUB_ENV
           else
-            sed -i "s|ghcr\.io/home-assistant/aarch64-base:[^\"]*|ghcr.io/home-assistant/aarch64-base:$LATEST|g" multiappproxy/build.yaml
-            sed -i "s|ghcr\.io/home-assistant/amd64-base:[^\"]*|ghcr.io/home-assistant/amd64-base:$LATEST|g" multiappproxy/build.yaml
+            sed -i "s|ghcr\.io/hassio-addons/base:[^\"]*|ghcr.io/hassio-addons/base:$LATEST|g" multiappproxy/build.yaml
             echo "🔄 Base version: $CURRENT → $LATEST"
-            echo "- **home-assistant/docker-base** → [$LATEST](https://github.com/home-assistant/docker-base/releases/tag/$LATEST)" >> multiappproxy/bot_changelog.md
+            echo "- **hassio-addons/addon-base** → [$LATEST](https://github.com/hassio-addons/addon-base/releases/tag/$LATEST)" >> multiappproxy/bot_changelog.md
             echo "CHANGES=true" >> $GITHUB_ENV
           fi
 
