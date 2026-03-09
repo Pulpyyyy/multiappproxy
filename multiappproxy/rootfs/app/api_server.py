@@ -47,26 +47,37 @@ def get_admin_status(user_id, user_name=''):
             return is_admin
 
     is_admin = False
-    auth_file = '/homeassistant/.storage/auth'
+    # Try both possible mount points depending on the HA Supervisor version:
+    # - /homeassistant/ when addon_config:rw + config:ro are both mapped (modern HA)
+    # - /config/ when only config:ro is mapped (older HA or fallback)
+    auth_candidates = ['/homeassistant/.storage/auth', '/config/.storage/auth']
+    auth_file = None
+    for candidate in auth_candidates:
+        if os.path.exists(candidate):
+            auth_file = candidate
+            break
     print(f'[API DEBUG] === get_admin_status START user_id={user_id!r} ===')
-    try:
-        with open(auth_file) as f:
-            data = json.load(f)
-        users = data.get('data', {}).get('users', [])
-        print(f'[API DEBUG] {len(users)} user(s) in auth storage')
-        user = next((u for u in users if u.get('id') == user_id), None)
-        print(f'[API DEBUG] Match user_id={user_id!r}: {user is not None}')
-        if user:
-            is_admin = (
-                'system-admin' in user.get('group_ids', [])
-                or user.get('is_owner', False)
-            )
-            print(f'[API DEBUG] is_owner={user.get("is_owner")} group_ids={user.get("group_ids")} → is_admin={is_admin}')
-    except FileNotFoundError:
-        print(f'[API DEBUG] File {auth_file} not found')
-    except Exception as e:
-        import traceback
-        print(f'[API DEBUG] Exception: {e!r}\n{traceback.format_exc()}')
+    print(f'[API DEBUG] Auth file candidates: {auth_candidates}')
+    print(f'[API DEBUG] Auth file found: {auth_file!r}')
+    if auth_file is None:
+        print(f'[API DEBUG] No auth file found in any candidate path')
+    else:
+        try:
+            with open(auth_file) as f:
+                data = json.load(f)
+            users = data.get('data', {}).get('users', [])
+            print(f'[API DEBUG] {len(users)} user(s) in auth storage')
+            user = next((u for u in users if u.get('id') == user_id), None)
+            print(f'[API DEBUG] Match user_id={user_id!r}: {user is not None}')
+            if user:
+                is_admin = (
+                    'system-admin' in user.get('group_ids', [])
+                    or user.get('is_owner', False)
+                )
+                print(f'[API DEBUG] is_owner={user.get("is_owner")} group_ids={user.get("group_ids")} → is_admin={is_admin}')
+        except Exception as e:
+            import traceback
+            print(f'[API DEBUG] Exception: {e!r}\n{traceback.format_exc()}')
     print(f'[API DEBUG] === END is_admin={is_admin} ===')
 
     _user_cache[cache_key] = (is_admin, time.time())
