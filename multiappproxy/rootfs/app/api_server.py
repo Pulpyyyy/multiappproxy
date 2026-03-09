@@ -29,7 +29,9 @@ CACHE_TTL = 300  # 5 minutes
 def get_admin_status(user_id, user_name=''):
     """Return True if the given user has admin rights in Home Assistant.
 
-    Reads /config/.storage/auth directly (requires map: config:rw).
+    Reads /homeassistant/.storage/auth (requires map: config:ro).
+    With addon_config:rw + config:ro, the HA config root is mounted at
+    /homeassistant/ and the addon's dedicated config dir at /config/.
     A user is considered admin if they are the owner (is_owner=True) or
     belong to the 'system-admin' group. Results are cached for CACHE_TTL
     seconds to avoid repeated file reads.
@@ -45,7 +47,7 @@ def get_admin_status(user_id, user_name=''):
             return is_admin
 
     is_admin = False
-    auth_file = '/config/.storage/auth'
+    auth_file = '/homeassistant/.storage/auth'
     print(f'[API DEBUG] === get_admin_status START user_id={user_id!r} ===')
     try:
         with open(auth_file) as f:
