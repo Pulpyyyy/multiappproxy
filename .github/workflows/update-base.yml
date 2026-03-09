@@ -22,34 +22,38 @@ jobs:
       - name: Get latest base image version
         id: latest
         run: |
-          LATEST=$(curl -sL https://api.github.com/repos/hassio-addons/addon-base/releases/latest \
+          TAG=$(curl -sL https://api.github.com/repos/hassio-addons/addon-base/releases/latest \
             | grep '"tag_name"' \
             | sed 's/.*"tag_name": "\(.*\)".*/\1/')
-          if [ -z "$LATEST" ]; then
+          if [ -z "$TAG" ]; then
             echo "❌ Could not fetch latest base version"
             exit 1
           fi
+          # Strip leading 'v' as the registry tags don't use it
+          LATEST="${TAG#v}"
           echo "VERSION=$LATEST" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "🔍 Latest base version: $LATEST"
 
       - name: Get current base image version
         id: current
         run: |
-          CURRENT=$(grep -oP 'ghcr\.io/hassio-addons/base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
+          CURRENT=$(grep -oP 'ghcr\.io/hassio-addons/base/amd64:\K[^"]+' multiappproxy/build.yaml | head -n 1)
           echo "VERSION=$CURRENT" >> $GITHUB_OUTPUT
           echo "📌 Current base version: $CURRENT"
 
       - name: Update build.yaml
         run: |
           LATEST="${{ steps.latest.outputs.VERSION }}"
+          TAG="${{ steps.latest.outputs.TAG }}"
           CURRENT="${{ steps.current.outputs.VERSION }}"
           if [ "$LATEST" = "$CURRENT" ]; then
             echo "✅ Base image already up to date ($CURRENT)"
             echo "CHANGES=false" >> $GITHUB_ENV
           else
-            sed -i "s|ghcr\.io/hassio-addons/base:[^\"]*|ghcr.io/hassio-addons/base:$LATEST|g" multiappproxy/build.yaml
+            sed -i "s|ghcr\.io/hassio-addons/base/\([^:]*\):[^\"]*|ghcr.io/hassio-addons/base/\1:$LATEST|g" multiappproxy/build.yaml
             echo "🔄 Base version: $CURRENT → $LATEST"
-            echo "- **hassio-addons/addon-base** → [$LATEST](https://github.com/hassio-addons/addon-base/releases/tag/$LATEST)" >> multiappproxy/bot_changelog.md
+            echo "- **hassio-addons/addon-base** → [$LATEST](https://github.com/hassio-addons/addon-base/releases/tag/$TAG)" >> multiappproxy/bot_changelog.md
             echo "CHANGES=true" >> $GITHUB_ENV
           fi
 
