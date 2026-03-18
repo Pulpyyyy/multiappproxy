@@ -9,6 +9,7 @@ on:
 
 env:
   ADDON: multiappproxy
+  REPOSITORY: pulpyyyy
   ARCHITECTURES: '["amd64", "aarch64"]'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -62,7 +63,7 @@ jobs:
           container-registry: docker.io
           container-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
           container-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
-          image: ${{ matrix.image }}
+          image: docker.io/${{ env.REPOSITORY }}/${{ env.ADDON }}-${{ matrix.arch }}
           image-tags: |
             ${{ needs.init.outputs.version }}
             latest
@@ -84,7 +85,7 @@ jobs:
           container-registry: docker.io
           container-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
           container-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
-          image-name: ${{ env.ADDON }}
+          image-name: docker.io/${{ env.REPOSITORY }}/${{ env.ADDON }}
           image-tags: |
             ${{ needs.init.outputs.version }}
             latest
