@@ -14,59 +14,132 @@ import json
 import hashlib
 import os
 import time
-import urllib.request
-import urllib.error
+import socket
+import struct
+import base64
 
 SECRETS_FILE = '/app/secrets.json'
 SUPERVISOR_TOKEN = os.environ.get('SUPERVISOR_TOKEN', '')
 print(f'[API DEBUG] SUPERVISOR_TOKEN set: {bool(SUPERVISOR_TOKEN)} len={len(SUPERVISOR_TOKEN)}')
+
+import urllib.request
+import urllib.error
+
+def _get_ha_ws_address():
+    """Return (host, port) for HA WebSocket, resolved via Supervisor API."""
+    try:
+        req = urllib.request.Request(
+            'http://supervisor/core/info',
+            headers={'Authorization': f'Bearer {SUPERVISOR_TOKEN}'},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            info = json.loads(resp.read())
+        port = info.get('data', {}).get('port', 8123)
+        print(f'[WS DEBUG] HA port from Supervisor: {port}')
+        return 'homeassistant', port
+    except Exception as e:
+        print(f'[WS DEBUG] Could not resolve HA address via Supervisor: {e}, falling back to homeassistant:8123')
+        return 'homeassistant', 8123
 
 # Per-user admin status cache: {user_id: (is_admin, timestamp)}
 _user_cache = {}
 CACHE_TTL = 300  # 5 minutes
 
 
+def _ws_get_users():
+    """Fetch user list from HA WebSocket API using SUPERVISOR_TOKEN."""
+    token = SUPERVISOR_TOKEN
+
+    def recv_exactly(sock, n):
+        data = b''
+        while len(data) < n:
+            chunk = sock.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError('Connection closed')
+            data += chunk
+        return data
+
+    def recv_frame(sock):
+        b0, b1 = recv_exactly(sock, 2)
+        length = b1 & 0x7f
+        if length == 126:
+            length = struct.unpack('>H', recv_exactly(sock, 2))[0]
+        elif length == 127:
+            length = struct.unpack('>Q', recv_exactly(sock, 8))[0]
+        return json.loads(recv_exactly(sock, length).decode())
+
+    def send_frame(sock, data):
+        payload = json.dumps(data).encode()
+        mask = os.urandom(4)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        n = len(masked)
+        if n < 126:
+            header = bytes([0x81, 0x80 | n]) + mask
+        elif n < 65536:
+            header = bytes([0x81, 0xfe]) + struct.pack('>H', n) + mask
+        else:
+            header = bytes([0x81, 0xff]) + struct.pack('>Q', n) + mask
+        sock.sendall(header + masked)
+
+    sock = socket.create_connection(('supervisor', 80), timeout=5)
+    try:
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((
+            'GET /core/websocket HTTP/1.1\r\n'
+            'Host: supervisor\r\n'
+            f'Authorization: Bearer {token}\r\n'
+            'Upgrade: websocket\r\n'
+            'Connection: Upgrade\r\n'
+            f'Sec-WebSocket-Key: {key}\r\n'
+            'Sec-WebSocket-Version: 13\r\n'
+            '\r\n'
+        ).encode())
+        buf = b''
+        while b'\r\n\r\n' not in buf:
+            buf += sock.recv(4096)
+        http_status = buf.split(b'\r\n')[0].decode()
+        print(f'[WS DEBUG] HTTP response: {http_status}')
+        msg = recv_frame(sock)
+        print(f'[WS DEBUG] Frame 1: {msg}')
+        if msg.get('type') == 'auth_required':
+            send_frame(sock, {'type': 'auth', 'access_token': token})
+            msg = recv_frame(sock)
+            print(f'[WS DEBUG] Frame 2 (auth result): {msg}')
+        if msg.get('type') != 'auth_ok':
+            return None
+        send_frame(sock, {'id': 1, 'type': 'config/auth/list'})
+        result = recv_frame(sock)
+        print(f'[WS DEBUG] Frame 3 (result?): type={result.get("type")} success={result.get("success")}')
+        if result.get('type') == 'result' and result.get('success'):
+            return result.get('result', [])
+        return None
+    finally:
+        sock.close()
+
+
 def get_admin_status(user_id, user_name=''):
     """Return True if the given user has admin rights in Home Assistant.
 
-    Reads /homeassistant/.storage/auth (requires map: config:ro).
-    With addon_config:rw + config:ro, the HA config root is mounted at
-    /homeassistant/ and the addon's dedicated config dir at /config/.
+    Uses HA WebSocket API (config/auth/list) with SUPERVISOR_TOKEN.
     A user is considered admin if they are the owner (is_owner=True) or
     belong to the 'system-admin' group. Results are cached for CACHE_TTL
-    seconds to avoid repeated file reads.
+    seconds to avoid repeated calls.
     """
     cache_key = user_id or user_name
     if not cache_key:
         return False
 
-    # Return cached result if still fresh
     if cache_key in _user_cache:
         is_admin, ts = _user_cache[cache_key]
         if time.time() - ts < CACHE_TTL:
             return is_admin
 
     is_admin = False
-    # Try both possible mount points depending on the HA Supervisor version:
-    # - /homeassistant/ when addon_config:rw + config:ro are both mapped (modern HA)
-    # - /config/ when only config:ro is mapped (older HA or fallback)
-    auth_candidates = ['/homeassistant/.storage/auth', '/config/.storage/auth']
-    auth_file = None
-    for candidate in auth_candidates:
-        if os.path.exists(candidate):
-            auth_file = candidate
-            break
     print(f'[API DEBUG] === get_admin_status START user_id={user_id!r} ===')
-    print(f'[API DEBUG] Auth file candidates: {auth_candidates}')
-    print(f'[API DEBUG] Auth file found: {auth_file!r}')
-    if auth_file is None:
-        print(f'[API DEBUG] No auth file found in any candidate path')
-    else:
-        try:
-            with open(auth_file) as f:
-                data = json.load(f)
-            users = data.get('data', {}).get('users', [])
-            print(f'[API DEBUG] {len(users)} user(s) in auth storage')
+    try:
+        users = _ws_get_users()
+        if users is not None:
+            print(f'[API DEBUG] {len(users)} user(s) via WebSocket')
             user = next((u for u in users if u.get('id') == user_id), None)
             print(f'[API DEBUG] Match user_id={user_id!r}: {user is not None}')
             if user:
@@ -75,9 +148,11 @@ def get_admin_status(user_id, user_name=''):
                     or user.get('is_owner', False)
                 )
                 print(f'[API DEBUG] is_owner={user.get("is_owner")} group_ids={user.get("group_ids")} → is_admin={is_admin}')
-        except Exception as e:
-            import traceback
-            print(f'[API DEBUG] Exception: {e!r}\n{traceback.format_exc()}')
+        else:
+            print('[API DEBUG] WebSocket returned no data')
+    except Exception as e:
+        import traceback
+        print(f'[API DEBUG] WebSocket error: {e!r}\n{traceback.format_exc()}')
     print(f'[API DEBUG] === END is_admin={is_admin} ===')
 
     _user_cache[cache_key] = (is_admin, time.time())

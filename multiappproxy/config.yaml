@@ -1,5 +1,5 @@
 name: "Multi-App Proxy"
-version: 1.0.2
+version: 1.0.3
 slug: "multiappproxy"
 description: "Proxy inverse simple pour gérer plusieurs applications web depuis Home Assistant"
 url: "https://github.com/Pulpyyyy/ha-addon-multiappproxy"
@@ -18,7 +18,6 @@ panel_title: Multi-App Proxy
 panel_admin: false
 map:
   - addon_config:rw
-  - config:ro
 options:
   apps:
     - name: "Example App"
@@ -42,4 +41,4 @@ schema:
       admin: bool?
       secret: str?
   debug: "bool?"
-image: "docker.io/pulpyyyy/multiappproxy-{arch}"
+# image: "docker.io/pulpyyyy/multiappproxy-{arch}"
