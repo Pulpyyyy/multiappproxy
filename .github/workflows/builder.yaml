@@ -26,7 +26,7 @@ jobs:
       version: ${{ steps.version.outputs.value }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get addon info
         id: info
@@ -58,7 +58,7 @@ jobs:
       matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build image
         uses: home-assistant/builder/actions/build-image@2026.03.2
