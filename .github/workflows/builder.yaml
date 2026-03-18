@@ -64,6 +64,7 @@ jobs:
         uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
           arch: ${{ matrix.arch }}
+          context: ./${{ env.ADDON }}
           container-registry: docker.io
           container-registry-username: ${{ secrets.DOCKERHUB_USERNAME }}
           container-registry-password: ${{ secrets.DOCKERHUB_TOKEN }}
