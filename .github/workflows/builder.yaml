@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      version: ${{ steps.info.outputs.version }}
+      version: ${{ steps.version.outputs.value }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -33,6 +33,10 @@ jobs:
         uses: home-assistant/actions/helpers/info@master
         with:
           path: "./${{ env.ADDON }}"
+
+      - name: Clean version
+        id: version
+        run: echo "value=$(echo '${{ steps.info.outputs.version }}' | tr -d '\"')" >> $GITHUB_OUTPUT
 
       - name: Get build matrix
         id: matrix
