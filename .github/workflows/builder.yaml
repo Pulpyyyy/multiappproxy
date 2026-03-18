@@ -11,7 +11,6 @@ env:
   ADDON: multiappproxy
   REPOSITORY: pulpyyyy
   ARCHITECTURES: '["amd64", "aarch64"]'
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: ${{ github.ref }}
@@ -60,6 +59,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Get base image
+        id: base
+        run: |
+          base=$(yq ".build_from.${{ matrix.arch }}" ./${{ env.ADDON }}/build.yaml)
+          echo "image=${base}" >> $GITHUB_OUTPUT
+
       - name: Build image
         uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
@@ -74,6 +79,8 @@ jobs:
             latest
           push: "true"
           version: ${{ needs.init.outputs.version }}
+          build-args: |
+            BUILD_FROM=${{ steps.base.outputs.image }}
 
   manifest:
     name: Publish multi-arch manifest
