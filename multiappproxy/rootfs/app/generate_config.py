@@ -6,6 +6,40 @@ import os
 import sys
 import hashlib
 from urllib.parse import quote
+try:
+    import urllib.request
+except ImportError:
+    pass
+
+
+def get_ha_ingress_url(addon_slug):
+    """Query HA Supervisor API to get the current ingress URL for a given addon slug.
+
+    Returns the ingress_url string (e.g. '/api/hassio_ingress/TOKEN/') or None on failure.
+    """
+    supervisor_token = os.environ.get('SUPERVISOR_TOKEN', '')
+    if not supervisor_token:
+        print(f"[WARN] SUPERVISOR_TOKEN not set, cannot resolve ingress URL for {addon_slug}")
+        return None
+    try:
+        req = urllib.request.Request(
+            f'http://supervisor/addons/{addon_slug}/info',
+            headers={
+                'Authorization': f'Bearer {supervisor_token}',
+                'Content-Type': 'application/json',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        ingress_url = data.get('data', {}).get('ingress_url', '')
+        if ingress_url:
+            print(f"[DEBUG] Resolved ingress URL for {addon_slug}: {ingress_url}")
+            return ingress_url.rstrip('/')
+        print(f"[WARN] No ingress_url found for addon {addon_slug}")
+        return None
+    except Exception as e:
+        print(f"[WARN] Failed to resolve ingress URL for {addon_slug}: {e}")
+        return None
 
 def generate_nginx_config(config_file='/app/config.yml'):
     """Generate Nginx configuration from YAML config file.
@@ -168,6 +202,23 @@ http {{
 
             print(f"[DEBUG] App raw config: {app}")
 
+            # hassio_ingress_slug — resolve the HA ingress path dynamically from Supervisor API.
+            # Generates a secondary nginx location that strips the ingress prefix before
+            # forwarding to Django, so static files and API calls embedded in HA-ingress-aware
+            # HTML are served correctly without touching the main proxy path.
+            hassio_ingress_slug = app.get('hassio_ingress_slug', '')
+            resolved_ingress_path = None
+            if hassio_ingress_slug:
+                resolved_ingress_path = get_ha_ingress_url(hassio_ingress_slug)
+                if resolved_ingress_path:
+                    print(f"[DEBUG] Resolved ingress path for {name}: {resolved_ingress_path}")
+                else:
+                    print(f"[WARN] Could not resolve ingress URL for {name}, secondary location skipped")
+
+            # preserve_path mode — forwards requests as-is without stripping the prefix.
+            # Used for apps that already embed their full path in URLs.
+            preserve_path = app.get('preserve_path', False)
+
             # Determine whether the app needs full URL rewriting.
             # If 'rewrite' is explicitly set (True or False) in the config, honour it.
             # Otherwise fall back to name-based auto-detection.
@@ -184,9 +235,50 @@ http {{
                 )
                 print(f"[DEBUG] Auto-detected rewrite for {name}: {needs_rewrite}")
 
-            print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite})")
+            print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite}, preserve_path: {preserve_path})")
 
-            if needs_rewrite:
+            # In ingress mode, absolute paths in HTML must include the full ingress prefix
+            # so the browser resolves them correctly on the HA domain.
+            # e.g. href="/nspm/settings" → href="/api/hassio_ingress/TOKEN/nspm/settings"
+            if is_ingress:
+                effective_path = f"{ingress_entry.rstrip('/')}{path}"
+            else:
+                effective_path = path
+            print(f"[DEBUG] Effective path for sub_filter: {effective_path}")
+
+            if preserve_path:
+                # Preserve path mode — no prefix stripping, no sub_filter.
+                # proxy_pass without trailing URI preserves the original request path.
+                # Required for HA addon ingress where all URLs already contain the full path.
+                nginx_config += f"""
+        # Proxy for {name} (preserve path)
+        location {path}/ {{
+            proxy_pass {url};
+            proxy_http_version 1.1;
+
+            # Disable SSL verification (allows self-signed certificates)
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;
+
+            # WebSocket support
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Standard forwarding headers
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Disable response buffering (required for WebSocket)
+            proxy_buffering off;
+
+            # Extended timeouts for long-lived WebSocket connections
+            proxy_read_timeout 86400;
+            proxy_send_timeout 86400;
+        }}
+"""
+            elif needs_rewrite:
                 # Full URL rewrite mode — used for apps like Z-Wave JS UI or Zigbee2MQTT
                 # that embed absolute paths in their HTML/JS/CSS responses.
                 token = app.get('token', '')
@@ -297,6 +389,36 @@ http {{
             set $args $args${{suffix}}token=$token;
             """
 
+                # Build the sub_filter directives.
+                # For HA-ingress-aware apps (hassio_ingress_slug set), Django already generates
+                # absolute paths with its own ingress token (e.g. /api/hassio_ingress/TOKEN/static/).
+                # We replace that token prefix with multiappproxy's effective_path so the browser
+                # requests flow back through multiappproxy → Django correctly.
+                # For regular apps, we prepend effective_path to all root-relative paths.
+                if resolved_ingress_path:
+                    sub_filter_block = f"""
+            # App is HA-ingress-aware: replace its own ingress token with our proxy path.
+            # This turns /api/hassio_ingress/APP_TOKEN/... → {effective_path}/...
+            # so the browser re-routes those requests through multiappproxy.
+            sub_filter_types text/html;
+            sub_filter_once off;
+            sub_filter '{resolved_ingress_path}' '{effective_path}';"""
+                    print(f"[DEBUG] Using ingress-token sub_filter for {name}: replace '{resolved_ingress_path}' → '{effective_path}'")
+                else:
+                    sub_filter_block = f"""
+            # Rewrite absolute paths in HTML responses so they go through the proxy.
+            # Covers static assets (src/href), forms (action), and HTMX attributes.
+            sub_filter_types text/html;
+            sub_filter_once off;
+            sub_filter 'src="/'    'src="{effective_path}/';
+            sub_filter 'href="/'   'href="{effective_path}/';
+            sub_filter 'action="/' 'action="{effective_path}/';
+            sub_filter 'hx-get="/'    'hx-get="{effective_path}/';
+            sub_filter 'hx-post="/'   'hx-post="{effective_path}/';
+            sub_filter 'hx-put="/'    'hx-put="{effective_path}/';
+            sub_filter 'hx-delete="/' 'hx-delete="{effective_path}/';
+            sub_filter 'hx-patch="/'  'hx-patch="{effective_path}/';"""
+
                 nginx_config += f"""
         # Proxy for {name}
         location {path}/ {{
@@ -317,12 +439,19 @@ http {{
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Ingress-Path $http_x_ingress_path;
+
+            # Do NOT forward X-Ingress-Path to the backend.
+            # Some apps (e.g. Django) use this header to prefix their static URLs,
+            # which causes a double-prefix when sub_filter also rewrites paths.
+            proxy_set_header X-Ingress-Path "";
+
+            # Disable compression so sub_filter can rewrite HTML responses
+            proxy_set_header Accept-Encoding "";
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect / {path}/;
-            proxy_redirect http://$host/ {path}/;
-            proxy_redirect https://$host/ {path}/;
+            proxy_redirect / {effective_path}/;
+            proxy_redirect http://$host/ {effective_path}/;
+            proxy_redirect https://$host/ {effective_path}/;
 
             # Prevent caching of proxied responses
             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
@@ -335,13 +464,7 @@ http {{
 
             # Disable response buffering (required for progressive PHP output and WebSocket)
             proxy_buffering off;
-
-            # Rewrite absolute paths in HTML responses so sub-apps (e.g. Streamlit)
-            # served at an internal sub-path stay within the proxy prefix
-            sub_filter_types text/html;
-            sub_filter_once off;
-            sub_filter 'src="/' 'src="{path}/';
-            sub_filter 'href="/' 'href="{path}/';
+{sub_filter_block}
         }}
 """
 

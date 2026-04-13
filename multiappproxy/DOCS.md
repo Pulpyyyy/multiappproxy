@@ -152,7 +152,9 @@ apps:
 | `logo` | string | No | - | Image URL (takes priority over icon) |
 | `category` | string | No | `Others` | Grouping category |
 | `token` | string | No | - | Authentication token (added as query string) |
-| `rewrite` | boolean | No | `false` | URL rewriting (deprecated, use app-side config) |
+| `rewrite` | boolean | No | auto | Force URL rewriting on/off. Auto-detected by name if omitted (see below) |
+| `preserve_path` | boolean | No | `false` | Forward requests as-is without stripping the path prefix (for apps already aware of their full path, e.g. HA-ingress-native addons) |
+| `hassio_ingress_slug` | string | No | - | Slug of another HA addon; the proxy resolves its ingress URL via the Supervisor API and rewrites matching paths in HTML responses so they flow back through multiappproxy |
 | `secret` | string | No | - | Password required to open the app (SHA256-hashed server-side, never sent to the client) |
 | `admin` | boolean | No | `false` | Hide this app from non-admin users (owner or system-admin group) |
 
@@ -216,6 +218,12 @@ Restrict an app's visibility to Home Assistant admin users:
 - On page load, the frontend calls `/api/user` to get the current user's admin status
 - Apps with `admin: true` are silently omitted from the rendered grid for non-admin users
 - A user is considered admin if `is_owner: true` or `group_ids` contains `system-admin` in `/config/.storage/auth`
+
+### URL Rewriting Auto-Detection
+
+When `rewrite` is not set, the proxy auto-detects whether full URL rewriting is needed based on the app name. Rewriting is automatically enabled if the name contains `zwave`, `zwavejs`, `zigbee2mqtt`, or `z2m` (case-insensitive).
+
+Set `rewrite: false` explicitly to disable this behaviour for a matched name, or `rewrite: true` to force it for any other app.
 
 ### Token Authentication
 
@@ -439,7 +447,7 @@ You can edit `multi-app-proxy.yaml` directly:
 
 ### Admin Visibility (`admin`)
 
-- Admin status is determined by reading `/config/.storage/auth` directly (requires `map: config:rw`)
+- Admin status is determined by reading `/config/.storage/auth` directly (requires `map: addon_config:rw`)
 - A user is admin if `is_owner: true` or `'system-admin' in group_ids`
 - Result is cached per user for 5 minutes to avoid repeated file reads
 - Non-admin users never receive a filtered-out app in `apps.json` — filtering happens client-side after the `/api/user` call
@@ -544,6 +552,16 @@ GitHub Issues: https://github.com/Pulpyyyy/multiappproxy/issues
 ---
 
 ## 📜 Changelog
+
+### v1.0.7
+- ✅ New `preserve_path` parameter (forward requests without stripping the path prefix)
+- ✅ New `hassio_ingress_slug` parameter (resolve another addon's ingress URL via Supervisor API)
+- ✅ Reworked admin detection and config storage path
+- ✅ Config mapped via `addon_config:rw` (replaces `config:rw`)
+- ✅ Various path and proxy fixes
+
+### v1.0.6
+- ✅ Base image updated to addon-base 20.0.4
 
 ### v1.0.5
 - ✅ Password-protected apps (`secret` field, SHA256 server-side)
