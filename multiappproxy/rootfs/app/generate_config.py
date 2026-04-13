@@ -332,6 +332,16 @@ http {{
             # Extended timeouts for long-lived WebSocket connections
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
+
+            # Disable response buffering (required for progressive PHP output and WebSocket)
+            proxy_buffering off;
+
+            # Rewrite absolute paths in HTML responses so sub-apps (e.g. Streamlit)
+            # served at an internal sub-path stay within the proxy prefix
+            sub_filter_types text/html;
+            sub_filter_once off;
+            sub_filter 'src="/' 'src="{path}/';
+            sub_filter 'href="/' 'href="{path}/';
         }}
 """
 
