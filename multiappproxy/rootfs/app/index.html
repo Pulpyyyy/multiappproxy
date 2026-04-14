@@ -347,17 +347,39 @@
                     const section = document.createElement('div');
                     section.className = 'category-section';
 
-                    section.innerHTML = `
-                        <div class="category-header" onclick="toggleCategory('${categoryId}')">
-                            <span class="category-icon">${categoryIcon}</span>
-                            <span class="category-title">${category}</span>
-                            <span class="category-count">${categoryApps.length}</span>
-                            <span class="category-toggle" id="toggle-${categoryId}">▼</span>
-                        </div>
-                        <div class="apps-grid expanded" id="grid-${categoryId}"></div>
-                    `;
+                    // Catégorie — construction DOM sans innerHTML pour éviter XSS
+                    const header = document.createElement('div');
+                    header.className = 'category-header';
+                    header.onclick = () => toggleCategory(categoryId);
 
-                    const grid = section.querySelector('.apps-grid');
+                    const iconSpan = document.createElement('span');
+                    iconSpan.className = 'category-icon';
+                    iconSpan.textContent = categoryIcon; // issu d'une map statique, mais on reste cohérent
+
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'category-title';
+                    titleSpan.textContent = category; // donnée utilisateur — textContent est sûr
+
+                    const countSpan = document.createElement('span');
+                    countSpan.className = 'category-count';
+                    countSpan.textContent = categoryApps.length;
+
+                    const toggleSpan = document.createElement('span');
+                    toggleSpan.className = 'category-toggle';
+                    toggleSpan.id = `toggle-${categoryId}`;
+                    toggleSpan.textContent = '▼';
+
+                    header.appendChild(iconSpan);
+                    header.appendChild(titleSpan);
+                    header.appendChild(countSpan);
+                    header.appendChild(toggleSpan);
+
+                    const grid = document.createElement('div');
+                    grid.className = 'apps-grid expanded';
+                    grid.id = `grid-${categoryId}`;
+
+                    section.appendChild(header);
+                    section.appendChild(grid);
 
                     categoryApps.forEach(app => {
                         const appUrl = basePath ? `${basePath}${app.path}/` : `${app.path}/`;
@@ -376,28 +398,59 @@
                             card.href = appUrl;
                         }
 
-                        // Logo image takes priority over emoji icon
-                        let iconHtml = '';
-                        if (app.logo) {
-                            iconHtml = `<img src="${app.logo}" class="app-logo" alt="${app.name}">`;
-                        } else {
-                            iconHtml = `<span class="app-icon">${app.icon || '📱'}</span>`;
+                        // Badges (admin-only, password-protected)
+                        if (app.admin) {
+                            const badge = document.createElement('span');
+                            badge.className = 'card-badge';
+                            badge.title = 'Admin only';
+                            badge.textContent = '🛡️';
+                            card.appendChild(badge);
+                        }
+                        if (app.has_secret) {
+                            const badge = document.createElement('span');
+                            badge.className = 'card-badge';
+                            badge.title = 'Password protected';
+                            badge.style.right = app.admin ? '2.2rem' : '0.6rem';
+                            badge.textContent = '🔐';
+                            card.appendChild(badge);
                         }
 
-                        // Status badges (admin-only, password-protected)
-                        const adminBadge = app.admin ? '<span class="card-badge" title="Admin only">🛡️</span>' : '';
-                        const secretBadge = app.has_secret ? '<span class="card-badge" title="Password protected" style="right:' + (app.admin ? '2.2rem' : '0.6rem') + '">🔐</span>' : '';
+                        // Logo image takes priority over emoji icon
+                        if (app.logo) {
+                            const img = document.createElement('img');
+                            img.src = app.logo; // URL — setAttribute évite l'injection de gestionnaire d'événement inline
+                            img.className = 'app-logo';
+                            img.alt = app.name; // textContent équivalent sur alt
+                            card.appendChild(img);
+                        } else {
+                            const iconEl = document.createElement('span');
+                            iconEl.className = 'app-icon';
+                            iconEl.textContent = app.icon || '📱';
+                            card.appendChild(iconEl);
+                        }
 
-                        // Backend URL shown only in debug mode
-                        const urlHtml = debugMode ? `<span class="app-url">${app.url || app.path}</span>` : '';
+                        // Nom de l'app
+                        const nameDiv = document.createElement('div');
+                        nameDiv.className = 'app-name';
+                        nameDiv.textContent = app.name;
+                        card.appendChild(nameDiv);
 
-                        card.innerHTML = `
-                            ${adminBadge}${secretBadge}
-                            ${iconHtml}
-                            <div class="app-name">${app.name}</div>
-                            ${app.description ? `<div class="app-description">${app.description}</div>` : ''}
-                            ${urlHtml}
-                        `;
+                        // Description
+                        if (app.description) {
+                            const descDiv = document.createElement('div');
+                            descDiv.className = 'app-description';
+                            descDiv.textContent = app.description;
+                            card.appendChild(descDiv);
+                        }
+
+                        // URL backend (debug mode uniquement)
+                        if (debugMode) {
+                            const urlSpan = document.createElement('span');
+                            urlSpan.className = 'app-url';
+                            urlSpan.textContent = app.url || app.path;
+                            card.appendChild(urlSpan);
+                        }
+
                         grid.appendChild(card);
                     });
 

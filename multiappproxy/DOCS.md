@@ -9,7 +9,7 @@ Simple and elegant reverse proxy for managing multiple web applications from Hom
 
 - 🔀 Multi-application reverse proxy with categories
 - 🔐 Token authentication (zigbee2mqtt-proxy compatible)
-- 🔑 Password-protected apps (SHA256, server-side verification)
+- 🔑 Password-protected apps (bcrypt, server-side verification)
 - 🛡️ Admin-only apps (hidden from non-admin HA users)
 - 🎨 Modern interface with Home Assistant theme
 - 📡 Native Home Assistant Ingress support
@@ -34,7 +34,7 @@ Multi-App Proxy is a Home Assistant add-on that allows accessing multiple web ap
 - ✅ **Custom categories** with automatic icons
 - ✅ **Debug mode** with real-time logs
 - ✅ **Token authentication** (zigbee2mqtt-proxy style)
-- ✅ **Password-protected apps** (SHA256 hash, server-side only)
+- ✅ **Password-protected apps** (bcrypt, server-side only)
 - ✅ **Admin-only apps** (hidden from non-admin HA users)
 - ✅ **Auto-signed SSL support**
 - ✅ **Full WebSocket support** (Z-Wave, Zigbee, Matter)
@@ -127,7 +127,7 @@ apps:
     description: Password-protected application
     icon: 🔒
     path: /private
-    secret: MySecretPassword  # SHA256-hashed, never sent to the client
+    secret: MySecretPassword  # bcrypt-hashed at startup, never sent to the client
 ```
 
 ---
@@ -155,8 +155,10 @@ apps:
 | `rewrite` | boolean | No | auto | Force URL rewriting on/off. Auto-detected by name if omitted (see below) |
 | `preserve_path` | boolean | No | `false` | Forward requests as-is without stripping the path prefix (for apps already aware of their full path, e.g. HA-ingress-native addons) |
 | `hassio_ingress_slug` | string | No | - | Slug of another HA addon; the proxy resolves its ingress URL via the Supervisor API and rewrites matching paths in HTML responses so they flow back through multiappproxy |
-| `secret` | string | No | - | Password required to open the app (SHA256-hashed server-side, never sent to the client) |
+| `secret` | string | No | - | Password required to open the app (bcrypt-hashed at startup, never sent to the client) |
 | `admin` | boolean | No | `false` | Hide this app from non-admin users (owner or system-admin group) |
+| `csrf_fix` | boolean | No | `false` | Override `Origin` and `Host` headers with the upstream URL. Required for Django apps that enforce CSRF checks on the `Origin` header (e.g. NSPanel Manager accessed through ingress) |
+| `ws_rewrite` | boolean | No | `false` | Inject a JavaScript patch at runtime that rewrites WebSocket URLs so they go through the proxy. Use when the upstream constructs WebSocket URLs server-side with an absolute host/path |
 
 ### Categories and Icons
 
@@ -199,9 +201,11 @@ Protect any app with a password using the `secret` field:
 
 **How it works:**
 1. The user clicks the card — a password modal is shown
-2. The frontend POSTs to `/api/verify-secret` with the SHA256 hash of the entered password
-3. The backend compares hashes; on success the browser navigates to the app
-4. The plain-text password is never stored in `apps.json` or sent to the client
+2. The frontend POSTs the plain password to `/api/verify-secret` over the HA Ingress connection (HTTPS)
+3. The backend verifies it with `bcrypt.checkpw` against the stored hash; on success the browser navigates to the app
+4. The plain-text password is never stored — only the bcrypt hash (with random salt) is kept in `/app/secrets.json`, server-side only
+
+**Rate limiting:** `/api/verify-secret` is limited to **5 attempts per minute per IP** at the Nginx level (burst of 3). A secondary in-process counter in the API server provides defense-in-depth.
 
 ### Admin-Only Apps
 
@@ -217,7 +221,7 @@ Restrict an app's visibility to Home Assistant admin users:
 **How it works:**
 - On page load, the frontend calls `/api/user` to get the current user's admin status
 - Apps with `admin: true` are silently omitted from the rendered grid for non-admin users
-- A user is considered admin if `is_owner: true` or `group_ids` contains `system-admin` in `/config/.storage/auth`
+- A user is considered admin if `is_owner: true` or `group_ids` contains `system-admin`, read from `/config/.storage/auth` (requires `config:ro` mapping)
 
 ### URL Rewriting Auto-Detection
 
@@ -440,14 +444,15 @@ You can edit `multi-app-proxy.yaml` directly:
 
 ### Password Protection (`secret`)
 
-- Password is SHA256-hashed at startup; the plain value is discarded
-- Only the hash is stored in `/app/secrets.json` (server-side, never served to the browser)
-- Verification happens via `POST /api/verify-secret` — the frontend sends the plain password over HTTPS and the backend compares hashes
+- Password is **bcrypt-hashed** (with random salt) at startup; the plain value is immediately discarded
+- Only the bcrypt hash is stored in `/app/secrets.json` (server-side only, never served to the browser)
+- Verification happens via `POST /api/verify-secret` — the frontend sends the plain password over HTTPS and the backend calls `bcrypt.checkpw`
 - A correct password grants navigation to the app URL for that browser session
+- `/api/verify-secret` is rate-limited to **5 requests/min per IP** at the Nginx layer (burst 3), with a secondary in-process counter as defense-in-depth
 
 ### Admin Visibility (`admin`)
 
-- Admin status is determined by reading `/config/.storage/auth` directly (requires `map: addon_config:rw`)
+- Admin status is determined by reading `/config/.storage/auth` directly (requires `config:ro` mapping)
 - A user is admin if `is_owner: true` or `'system-admin' in group_ids`
 - Result is cached per user for 5 minutes to avoid repeated file reads
 - Non-admin users never receive a filtered-out app in `apps.json` — filtering happens client-side after the `/api/user` call
@@ -553,6 +558,12 @@ GitHub Issues: https://github.com/Pulpyyyy/multiappproxy/issues
 
 ## 📜 Changelog
 
+### v1.0.8
+- ✅ Password hashing upgraded from SHA256 to **bcrypt** (salted, resistant to rainbow tables)
+- ✅ Rate limiting on `/api/verify-secret`: 5 req/min per IP at Nginx level + secondary in-process counter
+- ✅ XSS fix in frontend: all user-supplied values now inserted via `textContent` / DOM API instead of `innerHTML`
+- ✅ New parameters documented: `csrf_fix`, `ws_rewrite`
+
 ### v1.0.7
 - ✅ New `preserve_path` parameter (forward requests without stripping the path prefix)
 - ✅ New `hassio_ingress_slug` parameter (resolve another addon's ingress URL via Supervisor API)
@@ -564,8 +575,8 @@ GitHub Issues: https://github.com/Pulpyyyy/multiappproxy/issues
 - ✅ Base image updated to addon-base 20.0.4
 
 ### v1.0.5
-- ✅ Password-protected apps (`secret` field, SHA256 server-side)
-- ✅ Admin-only apps (`admin` field, reads `/config/.storage/auth`)
+- ✅ Password-protected apps (`secret` field, server-side verification)
+- ✅ Admin-only apps (`admin` field, HA WebSocket API)
 - ✅ Bug fix: navigation after password validation now goes to the app
 - ✅ All code comments translated to English
 - ✅ Translations updated for all 6 languages

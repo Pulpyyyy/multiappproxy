@@ -5,6 +5,7 @@ configuration:
   apps:
     name: Applications
     description: Liste des applications à proxifier.
+  # --- Identité / routage ---
   apps.name:
     name: Nom
     description: Nom d'affichage de l'application.
@@ -14,6 +15,7 @@ configuration:
   apps.path:
     name: Chemin
     description: Chemin d'accès dans le proxy (ex. /myapp).
+  # --- Affichage ---
   apps.description:
     name: Description
     description: Courte description affichée sur la carte.
@@ -26,18 +28,48 @@ configuration:
   apps.category:
     name: Catégorie
     description: Catégorie de regroupement.
-  apps.token:
-    name: Token
-    description: Token d'authentification (ajouté en query string).
-  apps.rewrite:
-    name: Réécriture d'URL
-    description: Activer la réécriture d'URL (obsolète, configurer côté app).
-  apps.secret:
-    name: Mot de passe
-    description: >
-      Mot de passe requis pour accéder à cette application. Laisser vide pour désactiver la protection par mot de passe.
+  # --- Accès ---
   apps.admin:
     name: Admins uniquement
     description: >
       Quand cette option est activée, l'application est masquée pour les
       utilisateurs non-administrateurs.
+  apps.secret:
+    name: Mot de passe
+    description: >
+      Mot de passe requis pour accéder à cette application. Laisser vide pour désactiver la protection par mot de passe.
+  apps.token:
+    name: Token
+    description: Token d'authentification (ajouté en query string).
+  # --- Comportement proxy ---
+  apps.rewrite:
+    name: Réécriture d'URL
+    description: Activer la réécriture d'URL (obsolète, configurer côté app).
+  apps.preserve_path:
+    name: Conserver le chemin
+    description: >
+      Transfère les requêtes telles quelles sans supprimer le préfixe du chemin proxy.
+      Nécessaire pour les apps ingress HA qui embarquent déjà le chemin complet dans leurs URLs.
+  apps.csrf_fix:
+    name: Correctif CSRF
+    description: >
+      À activer pour les applications Django sans ingress HA (ex. NSPanel Manager)
+      accessibles via l'ingress multiappproxy. Remplace l'en-tête Origin par l'URL
+      upstream afin que la vérification CSRF de Django voie un Origin et un Host
+      identiques.
+  apps.ws_rewrite:
+    name: Réécriture WebSocket
+    description: >
+      Active la réécriture automatique des URLs WebSocket. Quand activé, un script
+      est injecté dans les réponses HTML pour patcher window.WebSocket à l'exécution :
+      toute URL WebSocket contenant /websocket/, /ws/ ou /wss/ est réécrite
+      automatiquement pour passer par le chemin proxy de cette application.
+      Nécessaire pour les apps dont le backend ou le JavaScript construit des URLs
+      WebSocket avec le mauvais host ou chemin (ex. NSPanel Manager).
+  # --- Avancé ---
+  apps.hassio_ingress_slug:
+    name: Slug ingress HA
+    description: >
+      Slug de l'addon pour les apps avec ingress HA natif. Quand défini,
+      multiappproxy résout le token ingress de l'addon via l'API Supervisor
+      et réécrit ces chemins pour que le navigateur passe par multiappproxy.

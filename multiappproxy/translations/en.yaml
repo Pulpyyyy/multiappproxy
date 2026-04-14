@@ -5,6 +5,7 @@ configuration:
   apps:
     name: Applications
     description: List of applications to proxy.
+  # --- Identity / routing ---
   apps.name:
     name: Name
     description: Application display name.
@@ -14,6 +15,7 @@ configuration:
   apps.path:
     name: Path
     description: Access path in the proxy (e.g., /myapp).
+  # --- Display ---
   apps.description:
     name: Description
     description: Short description displayed on the card.
@@ -26,17 +28,45 @@ configuration:
   apps.category:
     name: Category
     description: Grouping category.
-  apps.token:
-    name: Token
-    description: Authentication token (added to query string).
-  apps.rewrite:
-    name: URL rewrite
-    description: Enable URL rewriting (deprecated, configure app-side instead).
-  apps.secret:
-    name: Password
-    description: >
-      Password required to access this application. Leave empty to disable password protection.
+  # --- Access ---
   apps.admin:
     name: Admin only
     description: >
       When enabled, this application is hidden from non-admin users.
+  apps.secret:
+    name: Password
+    description: >
+      Password required to access this application. Leave empty to disable password protection.
+  apps.token:
+    name: Token
+    description: Authentication token (added to query string).
+  # --- Proxy behaviour ---
+  apps.rewrite:
+    name: URL rewrite
+    description: Enable URL rewriting (deprecated, configure app-side instead).
+  apps.preserve_path:
+    name: Preserve path
+    description: >
+      Forward requests as-is without stripping the proxy path prefix.
+      Required for HA addon ingress apps that already embed the full path in their URLs.
+  apps.csrf_fix:
+    name: CSRF fix
+    description: >
+      Enable for Django apps without HA ingress (e.g. NSPanel Manager) accessed through
+      the multiappproxy ingress. Overrides the Origin header with the upstream URL so
+      Django's CSRF check sees a matching Origin and Host.
+  apps.ws_rewrite:
+    name: WebSocket rewrite
+    description: >
+      Enable automatic WebSocket URL rewriting. When set, a script is injected into
+      HTML responses that patches window.WebSocket at runtime: any WebSocket URL
+      containing /websocket/, /ws/, or /wss/ is transparently rewritten to go through
+      this app's proxy path. Required for apps whose backend or JavaScript constructs
+      WebSocket URLs with the wrong host or path (e.g. NSPanel Manager).
+  # --- Advanced ---
+  apps.hassio_ingress_slug:
+    name: HA ingress slug
+    description: >
+      Addon slug for HA-ingress-aware apps. When set, multiappproxy resolves the
+      addon's ingress token via the Supervisor API and rewrites those paths so the
+      browser routes requests back through multiappproxy.

@@ -4,7 +4,7 @@ import yaml
 import json
 import os
 import sys
-import hashlib
+import bcrypt
 from urllib.parse import quote
 try:
     import urllib.request
@@ -45,7 +45,7 @@ def generate_nginx_config(config_file='/app/config.yml'):
     """Generate Nginx configuration from YAML config file.
 
     Reads /app/config.yml (converted from HA options.json by json_to_yaml.py),
-    writes /app/apps.json (served to the frontend), /app/secrets.json (SHA256
+    writes /app/apps.json (served to the frontend), /app/secrets.json (bcrypt
     hashes for password-protected apps, server-side only), and
     /etc/nginx/nginx.conf.
     """
@@ -78,8 +78,8 @@ def generate_nginx_config(config_file='/app/config.yml'):
             secret_value = app.get('secret', '')
             has_secret = bool(secret_value)
             if has_secret:
-                # Store SHA256 hash only — the plain secret never leaves the server
-                secrets_map[app_path] = hashlib.sha256(secret_value.encode()).hexdigest()
+                # Store bcrypt hash only — the plain secret never leaves the server
+                secrets_map[app_path] = bcrypt.hashpw(secret_value.encode(), bcrypt.gensalt()).decode()
             apps_json.append({
                 'name': app['name'],
                 'url': app['url'],
@@ -93,15 +93,12 @@ def generate_nginx_config(config_file='/app/config.yml'):
                 'debug': debug_mode
             })
 
-        apps_json_str = json.dumps(apps_json).replace("'", "\\'").replace('"', '\\"')
-        print(f"[DEBUG] JSON generated: {len(apps_json_str)} characters")
-
         # Write apps.json (served to the frontend, no secrets)
         with open('/app/apps.json', 'w') as f:
             json.dump({'apps': apps_json, 'debug': debug_mode}, f, indent=2)
         print(f"[DEBUG] apps.json written")
 
-        # Write secrets.json (SHA256 hashes, server-side only — never served to the client)
+        # Write secrets.json (bcrypt hashes, server-side only — never served to the client)
         with open('/app/secrets.json', 'w') as f:
             json.dump(secrets_map, f, indent=2)
         print(f"[DEBUG] secrets.json written ({len(secrets_map)} secret(s))")
@@ -139,6 +136,18 @@ http {{
     gzip on;
     gzip_vary on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # Rate limiting — secret verification (5 tentatives/min par IP)
+    limit_req_zone $binary_remote_addr zone=verify_secret:10m rate=5r/m;
+
+    # Protocole réel pour la réécriture des redirects upstream.
+    # HA ingress pose X-Forwarded-Proto: https ; en accès direct on utilise $scheme.
+    # Permet de retourner des Location absolus en HTTPS plutôt que relatifs (que HA
+    # reconvertirait en http://host:8099/... illisibles par le service worker).
+    map $http_x_forwarded_proto $proxy_redirect_proto {{
+        ""      $scheme;
+        default $http_x_forwarded_proto;
+    }}
 
     # Map to handle the Ingress path prefix
     map $http_x_ingress_path $ingress_path {{
@@ -179,6 +188,18 @@ http {{
             alias /app/static/;
         }
 
+        # Secret verification — rate limité à 5 req/min par IP (burst=3)
+        location = /api/verify-secret {
+            limit_req zone=verify_secret burst=3 nodelay;
+            limit_req_status 429;
+            proxy_pass http://127.0.0.1:8088;
+            proxy_http_version 1.1;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Host $host;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 10s;
+        }
+
         # Internal API: user info and secret verification
         # Proxied to the Python api_server running on 127.0.0.1:8088
         location /api/ {
@@ -191,6 +212,18 @@ http {{
             proxy_connect_timeout 5s;
             proxy_read_timeout 10s;
         }
+"""
+
+        # En mode ingress, HA peut reconstruire des redirects en URL absolue avec le
+        # port backend (8099). Le navigateur tape alors directement sur nginx avec le
+        # préfixe /api/hassio_ingress/TOKEN intact. Ce bloc le strip et réinjecte
+        # le chemin dans la chaîne de location normale.
+        if is_ingress:
+            nginx_config += f"""
+        location ^~ /api/hassio_ingress/ {{
+            rewrite ^{ingress_entry}(/.*)$ $1 last;
+            return 404;
+        }}
 """
 
         # Generate one proxy location block per configured app
@@ -263,12 +296,14 @@ http {{
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
+            proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $http_host;
 
             # Disable response buffering (required for WebSocket)
             proxy_buffering off;
@@ -313,18 +348,20 @@ http {{
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
+            proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $http_host;
 
             # Let the upstream know its external path
             proxy_set_header X-External-Path {path};
 
-            # Do not follow upstream redirects
-            proxy_redirect off;
+            # Rewrite upstream redirects so they go through the proxy
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
 
             # Disable response buffering (required for WebSocket)
             proxy_buffering off;
@@ -342,15 +379,15 @@ http {{
             # Rewrite absolute paths in HTML/JS/CSS responses to add the proxy prefix
             sub_filter_types text/html text/css text/javascript application/javascript application/json;
             sub_filter_once off;
-            sub_filter 'src="/' 'src="{path}/';
-            sub_filter 'href="/' 'href="{path}/';
-            sub_filter "src='/" "src='{path}/";
-            sub_filter "href='/" "href='{path}/";
-            sub_filter 'url(/' 'url({path}/';
-            sub_filter '/api/' '{path}/api/';
-            sub_filter '/socket.io/' '{path}/socket.io/';
-            sub_filter '\\"/' '\\"{path}/';
-            sub_filter "\\'/" "\\'{path}/";
+            sub_filter 'src="/' 'src="{effective_path}/';
+            sub_filter 'href="/' 'href="{effective_path}/';
+            sub_filter "src='/" "src='{effective_path}/";
+            sub_filter "href='/" "href='{effective_path}/";
+            sub_filter 'url(/' 'url({effective_path}/';
+            sub_filter '/api/' '{effective_path}/api/';
+            sub_filter '/socket.io/' '{effective_path}/socket.io/';
+            sub_filter '\\"/' '\\"{effective_path}/';
+            sub_filter "\\'/" "\\'{effective_path}/";
         }}
 
         # Static assets (css, js, fonts, images) — served without rewriting
@@ -376,6 +413,28 @@ http {{
                     token_encoded = ''
 
                 proxy_url = f"{url}/"
+
+                # csrf_fix — overrides the Origin header with the upstream URL so Django's
+                # CSRF middleware sees a matching Origin and Host (both set to the upstream
+                # address). Required when the upstream is a Django app without HA ingress
+                # (e.g. NSPanel Manager), accessed through the multiappproxy ingress, because
+                # the browser sends Origin: https://homeassistant.example.com but Django
+                # receives an internal Host that does not match.
+                csrf_fix = app.get('csrf_fix', False)
+                if csrf_fix:
+                    from urllib.parse import urlparse as _urlparse
+                    _parsed = _urlparse(url)
+                    upstream_origin = f"{_parsed.scheme}://{_parsed.netloc}"
+                    upstream_host = _parsed.netloc
+                    # Override both Origin and Host with the upstream address.
+                    # Django CSRF compares Origin against Host; making them equal lets the
+                    # check pass without requiring CSRF_TRUSTED_ORIGINS on the upstream.
+                    host_header = f'proxy_set_header Host "{upstream_host}";'
+                    csrf_origin_header = f'proxy_set_header Origin "{upstream_origin}";'
+                    print(f"[DEBUG] csrf_fix enabled for {name}: Origin → {upstream_origin}")
+                else:
+                    host_header = "proxy_set_header Host $host;"
+                    csrf_origin_header = ""
 
                 token_config = ''
                 if token_encoded:
@@ -405,6 +464,31 @@ http {{
             sub_filter '{resolved_ingress_path}' '{effective_path}';"""
                     print(f"[DEBUG] Using ingress-token sub_filter for {name}: replace '{resolved_ingress_path}' → '{effective_path}'")
                 else:
+                    ws_rewrite = app.get('ws_rewrite', False)
+
+                    # When ws_rewrite is enabled, inject a small script that patches
+                    # window.WebSocket at runtime. The script rewrites any WebSocket URL
+                    # containing /websocket/ (absolute or relative) so the path goes through
+                    # this app's proxy location instead of hitting the domain root directly.
+                    # This handles URLs constructed server-side (ws://ip:port/websocket/stomp)
+                    # and client-side (wss://window.location.host + "/websocket/stomp").
+                    if ws_rewrite:
+                        ws_script = (
+                            "(function(){"
+                            "var W=window.WebSocket;"
+                            "window.WebSocket=function(u,p){"
+                            'if(typeof u==="string"&&/\\/(websocket|wss?)\\//.test(u)){'
+                            "var m=u.match(/^wss?:\\/\\/[^\\/]+(\\/.*)/);var path=m?m[1]:u;"
+                            'u=(location.protocol==="https:"?"wss":"ws")+"://"+location.host'
+                            f'+"{ effective_path }"+path;'
+                            "}return p?new W(u,p):new W(u);};"
+                            "}());"
+                        )
+                        ws_inject = f"\n            sub_filter '</body>' '<script>{ws_script}</script></body>';"
+                        print(f"[DEBUG] ws_rewrite enabled for {name}: injecting WebSocket patch via sub_filter")
+                    else:
+                        ws_inject = ""
+
                     sub_filter_block = f"""
             # Rewrite absolute paths in HTML responses so they go through the proxy.
             # Covers static assets (src/href), forms (action), and HTMX attributes.
@@ -417,7 +501,7 @@ http {{
             sub_filter 'hx-post="/'   'hx-post="{effective_path}/';
             sub_filter 'hx-put="/'    'hx-put="{effective_path}/';
             sub_filter 'hx-delete="/' 'hx-delete="{effective_path}/';
-            sub_filter 'hx-patch="/'  'hx-patch="{effective_path}/';"""
+            sub_filter 'hx-patch="/'  'hx-patch="{effective_path}/';{ws_inject}"""
 
                 nginx_config += f"""
         # Proxy for {name}
@@ -433,12 +517,15 @@ http {{
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
+            proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
-            proxy_set_header Host $host;
+            {host_header}
+            {csrf_origin_header}
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $http_host;
 
             # Do NOT forward X-Ingress-Path to the backend.
             # Some apps (e.g. Django) use this header to prefix their static URLs,
@@ -449,9 +536,7 @@ http {{
             proxy_set_header Accept-Encoding "";
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect / {effective_path}/;
-            proxy_redirect http://$host/ {effective_path}/;
-            proxy_redirect https://$host/ {effective_path}/;
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
 
             # Prevent caching of proxied responses
             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
@@ -467,6 +552,7 @@ http {{
 {sub_filter_block}
         }}
 """
+
 
         nginx_config += """
     }
