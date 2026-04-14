@@ -2,6 +2,9 @@ name: Release Pipeline
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -11,16 +14,19 @@ permissions:
 
 jobs:
   update-base:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/update-base.yml
     secrets: inherit
 
   autotag:
     needs: update-base
+    if: always() && github.event_name == 'workflow_dispatch' && needs.update-base.result == 'success'
     uses: ./.github/workflows/autotag.yml
     secrets: inherit
 
   build:
     needs: autotag
+    if: always() && (needs.autotag.result == 'success' || needs.autotag.result == 'skipped')
     uses: ./.github/workflows/builder.yaml
     secrets: inherit
 
@@ -35,7 +41,7 @@ jobs:
 
   release:
     needs: [autotag, build]
-    if: always() && needs.autotag.result == 'success' && needs.build.result == 'success'
+    if: always() && (needs.autotag.result == 'success' || needs.autotag.result == 'skipped') && needs.build.result == 'success'
     uses: ./.github/workflows/pre-release.yml
     with:
       addon: multiappproxy
