@@ -1,3 +1,12 @@
+## 1.0.9
+
+
+### 🛠️ Fixes & Updates
+
+- **hassio-addons/addon-base** → [20.1.0](https://github.com/hassio-addons/addon-base/releases/tag/v20.1.0)
+
+ --- 
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
