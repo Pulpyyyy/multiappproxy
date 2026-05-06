@@ -9,6 +9,8 @@ Simple and elegant reverse proxy for managing multiple web applications from Hom
 
 - 🔀 Multi-application reverse proxy with categories
 - 🔐 Token authentication (zigbee2mqtt-proxy compatible)
+- 🔑 Secret/password protection per app (bcrypt-hashed, rate-limited)
+- 👤 Admin-only app visibility
 - 🎨 Modern interface with Home Assistant theme
 - 📡 Native Home Assistant Ingress support
 - 🌐 Full WebSocket support (Z-Wave JS UI, Zigbee2MQTT, Matter Bridge, etc.)
@@ -32,6 +34,8 @@ Multi-App Proxy is a Home Assistant add-on that allows accessing multiple web ap
 - ✅ **Custom categories** with automatic icons
 - ✅ **Debug mode** with real-time logs
 - ✅ **Token authentication** (zigbee2mqtt-proxy style)
+- ✅ **Secret/password protection** per app (bcrypt, rate-limited)
+- ✅ **Admin-only app visibility**
 - ✅ **Auto-signed SSL support**
 - ✅ **Full WebSocket support** (Z-Wave, Zigbee, Matter)
 - ✅ **Custom logos** (emoji or image URL)
@@ -92,7 +96,7 @@ apps:
     path: /zwavejsui
     rewrite: false
     category: Protocols
-    
+
   - name: Zigbee2MQTT
     url: https://zigbee2mqtt.example.com:8080
     description: Zigbee to MQTT gateway
@@ -101,7 +105,7 @@ apps:
     token: SuperSecretToken?
     rewrite: false
     category: Protocols
-    
+
   - name: Matter Bridge
     url: http://matter-bridge.local:8283
     description: Matter gateway
@@ -109,6 +113,25 @@ apps:
     logo: https://raw.githubusercontent.com/t0bst4r/matterbridge/main/frontend/public/matterbridge%2064x64.png
     path: /matter
     category: Protocols
+
+  - name: Admin Dashboard
+    url: http://192.168.1.50:9000
+    path: /admin-dash
+    admin: true           # Only visible to HA admin users
+    secret: MyPassw0rd!   # Also requires a password
+    category: Tools
+
+  - name: NSPanel Manager
+    url: http://192.168.1.60:8000
+    path: /nspm
+    csrf_fix: true        # Django app: align Origin/Host to pass CSRF check
+    category: Automation
+
+  - name: Home Assistant App (ingress-aware)
+    url: http://192.168.1.70:8123
+    path: /ha-app
+    hassio_ingress_slug: my_other_addon  # resolve HA ingress token via Supervisor API
+    category: Automation
 ```
 
 ---
@@ -132,8 +155,14 @@ apps:
 | `icon` | string | No | 📱 | Emoji to display (UTF-8) |
 | `logo` | string | No | - | Image URL (takes priority over icon) |
 | `category` | string | No | `Others` | Grouping category |
+| `admin` | boolean | No | `false` | Show this app only to HA admin users |
+| `secret` | string | No | - | Require a password to access the app (bcrypt-hashed server-side) |
 | `token` | string | No | - | Authentication token (added as query string) |
-| `rewrite` | boolean | No | `false` | URL rewriting (deprecated, use app-side config) |
+| `rewrite` | boolean | No | auto | Force/disable full URL rewriting (auto-detected for Z-Wave/Zigbee by default) |
+| `preserve_path` | boolean | No | `false` | Forward requests without stripping the path prefix (HA ingress-aware apps) |
+| `csrf_fix` | boolean | No | `false` | Override `Origin` and `Host` with upstream URL (fixes Django CSRF check) |
+| `ws_rewrite` | boolean | No | `false` | Inject a JS patch to rewrite WebSocket URLs through the proxy |
+| `hassio_ingress_slug` | string | No | - | HA addon slug; resolves the ingress token path dynamically via Supervisor API |
 
 ### Categories and Icons
 
@@ -177,6 +206,81 @@ Generates: `http://backend/?token=MySecretToken123`
 - `?` → `%3F`
 - `&` → `%26`
 - `=` → `%3D`
+
+### Secret / Password Protection
+
+Protect an app with a password that the user must enter before accessing it:
+
+```yaml
+- name: Sensitive App
+  url: http://192.168.1.100:8080
+  path: /sensitive
+  secret: MyStrongPassword
+```
+
+- The plain secret is **never stored or sent to the client** — only a bcrypt hash is kept server-side.
+- Verification is rate-limited to **5 attempts/minute per IP** (burst 3).
+- The `/api/verify-secret` endpoint handles the check.
+
+### Admin-only Visibility
+
+Hide an app from non-admin HA users:
+
+```yaml
+- name: Admin Panel
+  url: http://192.168.1.100:9000
+  admin: true
+```
+
+The app card is not rendered at all for non-admin users. It can be combined with `secret` for double protection.
+
+### CSRF Fix (Django apps)
+
+When proxying a Django application that enforces CSRF origin checks, set `csrf_fix: true`:
+
+```yaml
+- name: NSPanel Manager
+  url: http://192.168.1.60:8000
+  csrf_fix: true
+```
+
+This overrides the `Origin` and `Host` headers sent to the upstream so both match the upstream address, which satisfies Django's CSRF middleware without requiring `CSRF_TRUSTED_ORIGINS` on the upstream app.
+
+### WebSocket Rewrite (`ws_rewrite`)
+
+For apps that build WebSocket URLs client-side using `window.location.host` (which would bypass the proxy), inject a transparent JS patch:
+
+```yaml
+- name: MQTT Explorer
+  url: http://192.168.1.100:4000
+  ws_rewrite: true
+```
+
+A small `<script>` is injected before `</body>` that patches `window.WebSocket` to route `/websocket/` and `/wss?/` paths through the proxy location.
+
+### Preserve Path (`preserve_path`)
+
+For apps that are themselves HA-ingress-aware and already embed the full path in their URLs:
+
+```yaml
+- name: Ingress-aware App
+  url: http://192.168.1.100:8080
+  preserve_path: true
+```
+
+Requests are forwarded **as-is** (no prefix stripping, no `sub_filter` rewriting).
+
+### HA Ingress Slug (`hassio_ingress_slug`)
+
+For HA addons whose HTML already contains absolute paths prefixed with their own HA ingress token, specify the addon slug and multiappproxy will resolve the token dynamically via the Supervisor API and replace it with its own proxy path:
+
+```yaml
+- name: Other HA Addon
+  url: http://192.168.1.100:8080
+  hassio_ingress_slug: my_other_addon
+```
+
+Requires `SUPERVISOR_TOKEN` to be available (automatically set by HA).
 
 ---
 
