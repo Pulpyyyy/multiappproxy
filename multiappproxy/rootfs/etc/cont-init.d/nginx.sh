@@ -31,7 +31,10 @@ if [ ! -f /etc/nginx/nginx.conf ]; then
 fi
 
 bashio::log.info "Validating configuration..."
-nginx -t 2>&1 | grep -v "warn" || bashio::exit.nok "Invalid Nginx configuration"
+if ! nginx_output=$(nginx -t 2>&1); then
+    bashio::log.error "${nginx_output}"
+    bashio::exit.nok "Invalid Nginx configuration"
+fi
 
 APP_COUNT=$(jq '.apps | length' $CONFIG_PATH)
 bashio::log.info "=========================================="

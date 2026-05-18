@@ -1,3 +1,27 @@
+## 1.1.0
+
+### Security
+- **Server-side access control**: admin-only and secret-protected apps are now enforced by nginx `auth_request` — a direct URL access by a non-authorized HA user is redirected to the portal instead of reaching the upstream
+- **Session cookies**: successful secret verification now issues an `HttpOnly; SameSite=Strict` session cookie (8h TTL), eliminating the need to re-enter the password on each page reload; sessions survive addon restarts
+- **`secrets.json` hardened**: file permissions set to `600` at generation time
+- **Security headers added**: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` on all portal responses
+- **CORS removed**: `Access-Control-Allow-Origin: *` removed from `/api/user` and `/api/verify-secret` (unnecessary in ingress context)
+- **POST body size capped**: `/api/verify-secret` now rejects payloads larger than 4 KB
+
+### Added
+- New `ssl_verify` parameter (per-app, default `false`): when `true`, enables upstream SSL certificate verification against system CA bundle — opt-in for apps with valid certificates
+- Config validation at startup: clear error messages for invalid `url` (must be `http://` or `https://`) and `path` (must be a simple `/slug`) before any nginx config is generated
+
+### Changed
+- API server switched to `ThreadingHTTPServer` — concurrent requests (e.g. simultaneous bcrypt checks) no longer block each other
+- Debug logs (`[API DEBUG]`, `[SECRET DEBUG]`) are now conditional on `debug: true` — nothing sensitive leaks to system logs in production
+- `nginx -t` exit code check corrected: the pipe through `grep` was masking the real nginx exit code
+
+### Fixed
+- `replaceAll()` instead of `replace()` in the secret verification path computation (JS)
+
+---
+
 ## 1.0.10
 
 

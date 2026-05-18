@@ -3,9 +3,10 @@
 import yaml
 import json
 import os
+import re
 import sys
 import bcrypt
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 try:
     import urllib.request
 except ImportError:
@@ -41,6 +42,34 @@ def get_ha_ingress_url(addon_slug):
         print(f"[WARN] Failed to resolve ingress URL for {addon_slug}: {e}")
         return None
 
+_PATH_RE = re.compile(r'^/[a-zA-Z0-9_-]+$')
+
+def validate_apps(apps: list) -> None:
+    """Fail fast with a clear message if any app has an invalid url or path."""
+    for app in apps:
+        name = app.get('name', '?')
+        url  = app.get('url', '')
+        path = app.get('path', '')
+
+        try:
+            parsed = urlparse(url)
+        except Exception as exc:
+            raise ValueError(f"App '{name}': url invalide — {exc}") from exc
+
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError(
+                f"App '{name}': url doit commencer par http:// ou https:// (reçu: {url!r})"
+            )
+        if not parsed.netloc:
+            raise ValueError(f"App '{name}': url invalide — hôte manquant ({url!r})")
+
+        if path and not _PATH_RE.match(path):
+            raise ValueError(
+                f"App '{name}': path '{path}' invalide — "
+                f"format attendu: /slug (lettres, chiffres, - et _ uniquement)"
+            )
+
+
 def generate_nginx_config(config_file='/app/config.yml'):
     """Generate Nginx configuration from YAML config file.
 
@@ -60,6 +89,7 @@ def generate_nginx_config(config_file='/app/config.yml'):
         apps = config.get('apps', [])
         debug_mode = config.get('debug', False)
         print(f"[DEBUG] {len(apps)} application(s) found")
+        validate_apps(apps)
         print(f"[DEBUG] Debug mode: {debug_mode}")
 
         # Detect Ingress mode via the HA environment variable
@@ -101,7 +131,15 @@ def generate_nginx_config(config_file='/app/config.yml'):
         # Write secrets.json (bcrypt hashes, server-side only — never served to the client)
         with open('/app/secrets.json', 'w') as f:
             json.dump(secrets_map, f, indent=2)
+        os.chmod('/app/secrets.json', 0o600)
         print(f"[DEBUG] secrets.json written ({len(secrets_map)} secret(s))")
+
+        # Write debug flag for api_server.py (reads it at startup)
+        flag_path = '/app/debug.flag'
+        if debug_mode:
+            open(flag_path, 'w').close()
+        elif os.path.exists(flag_path):
+            os.remove(flag_path)
 
         print("[DEBUG] Generating Nginx config template...")
 
@@ -157,6 +195,14 @@ http {{
     server {{
         listen 8099;
         server_name _;
+
+        # Security headers (portal pages only — not forwarded to upstreams)
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+        # Redirect auth failures (admin/secret) to the portal home page
+        error_page 401 403 = @auth_error;
 
         # Base path for Ingress
         set $base_path "";
@@ -270,6 +316,34 @@ http {{
 
             print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite}, preserve_path: {preserve_path})")
 
+            # SSL verification (only relevant for https upstreams)
+            ssl_verify = app.get('ssl_verify', False)
+            if url.startswith('https'):
+                if ssl_verify:
+                    ssl_block = """proxy_ssl_verify on;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+            proxy_ssl_server_name on;"""
+                else:
+                    ssl_block = """proxy_ssl_verify off;
+            proxy_ssl_server_name on;"""
+            else:
+                ssl_block = ""
+
+            # Server-side access control via nginx auth_request
+            is_admin_app  = app.get('admin', False)
+            has_secret    = bool(app.get('secret', ''))
+            if is_admin_app:
+                # Admin apps: verify HA admin status on every request
+                auth_request_block = """
+            auth_request /api/auth/admin;"""
+            elif has_secret:
+                # Secret apps: verify session cookie set by /api/verify-secret
+                # Path is encoded in the URI itself — no query string (auth_request encodes '?')
+                auth_request_block = f"""
+            auth_request /api/auth/secret{path};"""
+            else:
+                auth_request_block = ""
+
             # In ingress mode, absolute paths in HTML must include the full ingress prefix
             # so the browser resolves them correctly on the HA domain.
             # e.g. href="/nspm/settings" → href="/api/hassio_ingress/TOKEN/nspm/settings"
@@ -285,13 +359,11 @@ http {{
                 # Required for HA addon ingress where all URLs already contain the full path.
                 nginx_config += f"""
         # Proxy for {name} (preserve path)
-        location {path}/ {{
+        location {path}/ {{{auth_request_block}
             proxy_pass {url};
             proxy_http_version 1.1;
 
-            # Disable SSL verification (allows self-signed certificates)
-            proxy_ssl_verify off;
-            proxy_ssl_server_name on;
+            {ssl_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
@@ -308,7 +380,6 @@ http {{
             # Disable response buffering (required for WebSocket)
             proxy_buffering off;
 
-            # Extended timeouts for long-lived WebSocket connections
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
         }}
@@ -318,10 +389,9 @@ http {{
                 # that embed absolute paths in their HTML/JS/CSS responses.
                 token = app.get('token', '')
 
-                # URL-encode the token to safely handle special characters
                 if token:
                     token_encoded = quote(token, safe='')
-                    print(f"[DEBUG] Token encoded: {token[:5]}... → {token_encoded[:5]}...")
+                    print(f"[DEBUG] Token configured for {name}")
                     token_config = f"""set $token "{token_encoded}";
             set $args $args&token=$token;
             """
@@ -331,7 +401,7 @@ http {{
 
                 nginx_config += f"""
         # Proxy for {name} (full URL rewrite)
-        location {path}/ {{
+        location {path}/ {{{auth_request_block}
 
             # Authentication token
             {token_config}
@@ -341,9 +411,7 @@ http {{
             proxy_pass {url};
             proxy_http_version 1.1;
 
-            # Disable SSL verification (allows self-signed certificates)
-            proxy_ssl_verify off;
-            proxy_ssl_server_name on;
+            {ssl_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
@@ -371,10 +439,9 @@ http {{
             add_header Pragma "no-cache";
             add_header Expires 0;
 
-            # Extended timeouts for long-lived WebSocket connections
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
-            proxy_connect_timeout 240;
+            proxy_connect_timeout 30;
 
             # Rewrite absolute paths in HTML/JS/CSS responses to add the proxy prefix
             sub_filter_types text/html text/css text/javascript application/javascript application/json;
@@ -394,8 +461,7 @@ http {{
         location ~ ^{path}/(static|css|js|fonts|img|images)/ {{
             rewrite ^{path}/(.*) /$1 break;
             proxy_pass {url};
-            proxy_ssl_verify off;
-            proxy_ssl_server_name on;
+            {ssl_block}
             proxy_set_header Host $host;
             proxy_cache_valid 200 1h;
             expires 1h;
@@ -404,11 +470,8 @@ http {{
             else:
                 # Standard reverse proxy — proxy_pass trailing slash strips the prefix
                 token = app.get('token', '')
-
-                # URL-encode the token to safely handle special characters
                 if token:
                     token_encoded = quote(token, safe='')
-                    print(f"[DEBUG] Token encoded: {token[:5]}... → {token_encoded[:5]}...")
                 else:
                     token_encoded = ''
 
@@ -422,8 +485,7 @@ http {{
                 # receives an internal Host that does not match.
                 csrf_fix = app.get('csrf_fix', False)
                 if csrf_fix:
-                    from urllib.parse import urlparse as _urlparse
-                    _parsed = _urlparse(url)
+                    _parsed = urlparse(url)
                     upstream_origin = f"{_parsed.scheme}://{_parsed.netloc}"
                     upstream_host = _parsed.netloc
                     # Override both Origin and Host with the upstream address.
@@ -438,7 +500,6 @@ http {{
 
                 token_config = ''
                 if token_encoded:
-                    # Append the token to the query string, preserving existing args
                     token_config = f"""# Authentication token
             set $suffix '';
             if ($args != '') {{
@@ -505,14 +566,12 @@ http {{
 
                 nginx_config += f"""
         # Proxy for {name}
-        location {path}/ {{
+        location {path}/ {{{auth_request_block}
             {token_config}
             proxy_pass {proxy_url};
             proxy_http_version 1.1;
 
-            # Disable SSL verification (allows self-signed certificates)
-            proxy_ssl_verify off;
-            proxy_ssl_server_name on;
+            {ssl_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
@@ -543,7 +602,6 @@ http {{
             add_header Pragma "no-cache";
             add_header Expires 0;
 
-            # Extended timeouts for long-lived WebSocket connections
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
 
@@ -554,9 +612,14 @@ http {{
 """
 
 
-        nginx_config += """
-    }
-}
+        home_redirect = ingress_entry.rstrip('/') + '/' if is_ingress else '/'
+        nginx_config += f"""
+        # Auth failure handler: redirect to portal home page
+        location @auth_error {{
+            return 302 {home_redirect};
+        }}
+    }}
+}}
 """
 
         # Write the final Nginx config
