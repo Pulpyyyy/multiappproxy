@@ -157,8 +157,11 @@ apps:
 | `hassio_ingress_slug` | string | No | - | Slug of another HA addon; the proxy resolves its ingress URL via the Supervisor API and rewrites matching paths in HTML responses so they flow back through multiappproxy |
 | `secret` | string | No | - | Password required to open the app (bcrypt-hashed at startup, never sent to the client) |
 | `admin` | boolean | No | `false` | Hide this app from non-admin users (owner or system-admin group) |
-| `csrf_fix` | boolean | No | `false` | Override `Origin` and `Host` headers with the upstream URL. Required for Django apps that enforce CSRF checks on the `Origin` header (e.g. NSPanel Manager accessed through ingress) |
+| `csrf_fix` | boolean | No | `false` | Override `Origin`, `Referer` and `Host` headers with the upstream URL. Required for apps that validate the request origin: Django apps (e.g. NSPanel Manager) or embedded firmwares (e.g. ESPSomfy-RTS) |
 | `ws_rewrite` | boolean | No | `false` | Inject a JavaScript patch at runtime that rewrites WebSocket URLs so they go through the proxy. Use when the upstream constructs WebSocket URLs server-side with an absolute host/path |
+| `ssl_verify` | boolean | No | `false` | Verify the upstream SSL certificate against the system CA bundle (https upstreams only) |
+| `ws_target` | string | No | - | Dedicated WebSocket upstream (e.g. `http://192.168.1.223:8080`). Exposes it at `{path}/ws` through the proxy — for devices serving HTTP and WebSocket on different ports (ESPSomfy-RTS) |
+| `hide_csp` | boolean | No | `false` | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
 
 ### Categories and Icons
 
@@ -294,6 +297,33 @@ frontend:
   path: /matter
   category: Protocols
 ```
+
+#### ESPSomfy-RTS (ESP32 Somfy blinds controller)
+
+ESPSomfy-RTS serves its web UI over HTTP on port 80 and its real-time
+WebSocket on a **separate port (8080)**. It also validates the `Host`/`Origin`/
+`Referer` headers on every API call (403 otherwise) and sends a
+`frame-ancestors 'none'` CSP that blocks the HA ingress iframe. The following
+combination handles all of that:
+
+```yaml
+- name: ESPSomfy RTS
+  url: http://192.168.1.223
+  path: /espsomfy
+  icon: 🪟
+  description: "Contrôle des volets Somfy RTS via ESP32"
+  category: Domotique
+  csrf_fix: true                          # Host/Origin/Referer → IP of the ESP
+  hide_csp: true                          # allow rendering in the HA ingress iframe
+  ws_target: http://192.168.1.223:8080    # WebSocket tunnelled at /espsomfy/ws
+```
+
+Requirements on the firmware side: the stock ESPSomfy-RTS web app builds its
+API and WebSocket URLs without any base path, so it must include the
+proxy-aware patch (base-path detection in `index.js`); see the
+[ESPSomfy-RTS fork](https://github.com/Pulpyyyy/ESPSomfy-RTS). The browser
+never talks to the ESP directly: HTTPS/WSS terminate at HA and nginx forwards
+in clear HTTP/WS on the LAN — no mixed content.
 
 ### ⚙️ Other Applications
 

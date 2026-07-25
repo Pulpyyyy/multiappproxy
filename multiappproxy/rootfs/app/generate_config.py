@@ -69,6 +69,18 @@ def validate_apps(apps: list) -> None:
                 f"format attendu: /slug (lettres, chiffres, - et _ uniquement)"
             )
 
+        ws_target = app.get('ws_target', '')
+        if ws_target:
+            try:
+                ws_parsed = urlparse(ws_target)
+            except Exception as exc:
+                raise ValueError(f"App '{name}': ws_target invalide — {exc}") from exc
+            if ws_parsed.scheme not in ('http', 'https') or not ws_parsed.netloc:
+                raise ValueError(
+                    f"App '{name}': ws_target doit être une URL http(s) "
+                    f"(ex: http://192.168.1.223:8080, reçu: {ws_target!r})"
+                )
+
 
 def generate_nginx_config(config_file='/app/config.yml'):
     """Generate Nginx configuration from YAML config file.
@@ -169,6 +181,18 @@ http {{
     tcp_nodelay on;
     keepalive_timeout 65;
     types_hash_max_size 2048;
+
+    # Allow large uploads to upstreams (e.g. ESP firmware OTA through the
+    # proxy). The nginx default (1m) makes them fail with HTTP 413.
+    client_max_body_size 64m;
+
+    # Proper Connection header: "upgrade" only when the client actually asks
+    # for a WebSocket, "close" otherwise. Forcing "upgrade" on every request
+    # confuses some embedded HTTP servers (ESP32, etc.).
+    map $http_upgrade $connection_upgrade {{
+        default upgrade;
+        ''      close;
+    }}
 
     # Gzip compression
     gzip on;
@@ -316,6 +340,18 @@ http {{
 
             print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite}, preserve_path: {preserve_path})")
 
+            # hide_csp — drop upstream security headers that break embedding.
+            # e.g. ESPSomfy-RTS sends "frame-ancestors 'none'" + a connect-src limited
+            # to ws://*:8080, both incompatible with the HA ingress iframe.
+            if app.get('hide_csp', False):
+                hide_csp_block = """
+            # Drop upstream security headers incompatible with HA ingress (iframe)
+            proxy_hide_header Content-Security-Policy;
+            proxy_hide_header X-Frame-Options;"""
+                print(f"[DEBUG] hide_csp enabled for {name}")
+            else:
+                hide_csp_block = ""
+
             # SSL verification (only relevant for https upstreams)
             ssl_verify = app.get('ssl_verify', False)
             if url.startswith('https'):
@@ -363,11 +399,11 @@ http {{
             proxy_pass {url};
             proxy_http_version 1.1;
 
-            {ssl_block}
+            {ssl_block}{hide_csp_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
+            proxy_set_header Connection $connection_upgrade;
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
@@ -411,11 +447,11 @@ http {{
             proxy_pass {url};
             proxy_http_version 1.1;
 
-            {ssl_block}
+            {ssl_block}{hide_csp_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
+            proxy_set_header Connection $connection_upgrade;
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
@@ -488,12 +524,18 @@ http {{
                     _parsed = urlparse(url)
                     upstream_origin = f"{_parsed.scheme}://{_parsed.netloc}"
                     upstream_host = _parsed.netloc
-                    # Override both Origin and Host with the upstream address.
+                    # Override Origin, Referer and Host with the upstream address.
                     # Django CSRF compares Origin against Host; making them equal lets the
                     # check pass without requiring CSRF_TRUSTED_ORIGINS on the upstream.
+                    # Referer is rewritten too: some embedded firmwares (e.g. ESPSomfy-RTS)
+                    # fall back to Referer when Origin is absent (all GET requests) and
+                    # reject the request if its host differs from the Host header.
                     host_header = f'proxy_set_header Host "{upstream_host}";'
-                    csrf_origin_header = f'proxy_set_header Origin "{upstream_origin}";'
-                    print(f"[DEBUG] csrf_fix enabled for {name}: Origin → {upstream_origin}")
+                    csrf_origin_header = (
+                        f'proxy_set_header Origin "{upstream_origin}";\n'
+                        f'            proxy_set_header Referer "{upstream_origin}/";'
+                    )
+                    print(f"[DEBUG] csrf_fix enabled for {name}: Origin/Referer → {upstream_origin}")
                 else:
                     host_header = "proxy_set_header Host $host;"
                     csrf_origin_header = ""
@@ -571,11 +613,11 @@ http {{
             proxy_pass {proxy_url};
             proxy_http_version 1.1;
 
-            {ssl_block}
+            {ssl_block}{hide_csp_block}
 
             # WebSocket support
             proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
+            proxy_set_header Connection $connection_upgrade;
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
@@ -611,6 +653,45 @@ http {{
         }}
 """
 
+            # Redirect /path → /path/ : apps with relative assets (embedded firmwares,
+            # simple web UIs) resolve them against the wrong base without the slash.
+            nginx_config += f"""
+        # Trailing-slash redirect for {name}
+        location = {path} {{
+            return 301 {effective_path}/;
+        }}
+"""
+
+            # ws_target — dedicated WebSocket upstream on a separate port.
+            # e.g. ESPSomfy-RTS serves HTTP on :80 but its WebSocket on :8080.
+            # The client connects to {path}/ws through the proxy (wss on HTTPS pages,
+            # no mixed content) and nginx forwards to the ws_target in clear on the LAN.
+            ws_target = app.get('ws_target', '')
+            if ws_target:
+                ws_parsed = urlparse(ws_target)
+                ws_host = ws_parsed.netloc
+                ws_url = ws_target.rstrip('/') + '/'
+                if ws_target.startswith('https'):
+                    ws_ssl_block = """proxy_ssl_verify off;
+            proxy_ssl_server_name on;"""
+                else:
+                    ws_ssl_block = ""
+                print(f"[DEBUG] ws_target for {name}: {path}/ws → {ws_url}")
+                nginx_config += f"""
+        # Dedicated WebSocket upstream for {name}
+        location = {path}/ws {{{auth_request_block}
+            proxy_pass {ws_url};
+            proxy_http_version 1.1;
+            {ws_ssl_block}
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+            proxy_set_header Host {ws_host};
+            proxy_buffering off;
+            proxy_read_timeout 86400;
+            proxy_send_timeout 86400;
+        }}
+"""
 
         home_redirect = ingress_entry.rstrip('/') + '/' if is_ingress else '/'
         nginx_config += f"""

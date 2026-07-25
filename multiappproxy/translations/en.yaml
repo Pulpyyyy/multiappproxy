@@ -52,9 +52,10 @@ configuration:
   apps.csrf_fix:
     name: CSRF fix
     description: >
-      Enable for Django apps without HA ingress (e.g. NSPanel Manager) accessed through
-      the multiappproxy ingress. Overrides the Origin header with the upstream URL so
-      Django's CSRF check sees a matching Origin and Host.
+      Enable for apps that validate the request origin: Django apps without HA
+      ingress (e.g. NSPanel Manager) or embedded firmwares (e.g. ESPSomfy-RTS).
+      Overrides the Origin, Referer and Host headers with the upstream URL so
+      the app's CSRF check sees consistent values.
   apps.ws_rewrite:
     name: WebSocket rewrite
     description: >
@@ -63,6 +64,27 @@ configuration:
       containing /websocket/, /ws/, or /wss/ is transparently rewritten to go through
       this app's proxy path. Required for apps whose backend or JavaScript constructs
       WebSocket URLs with the wrong host or path (e.g. NSPanel Manager).
+  apps.ws_target:
+    name: Separate WebSocket (URL)
+    description: >
+      URL of the WebSocket server when the device serves it on a different port
+      than HTTP (e.g. ESPSomfy-RTS: web on :80, WebSocket on :8080 →
+      http://192.168.1.223:8080). The proxy then exposes it at <path>/ws:
+      from an HTTPS page the browser connects over wss:// through the proxy,
+      avoiding the mixed-content block of a direct ws:// to the device.
+  apps.hide_csp:
+    name: Hide CSP headers
+    description: >
+      Strips the Content-Security-Policy and X-Frame-Options headers returned
+      by the application. Enable when the app forbids being displayed in an
+      iframe (frame-ancestors 'none') but must render inside the Home Assistant
+      ingress panel (e.g. ESPSomfy-RTS). Only affects this app.
+  apps.ssl_verify:
+    name: SSL verification
+    description: >
+      Verify the application's SSL certificate (https upstreams only) against
+      the system certificate authorities. Disabled by default to accept
+      self-signed certificates on the local network.
   # --- Advanced ---
   apps.hassio_ingress_slug:
     name: HA ingress slug

@@ -1,3 +1,17 @@
+## 1.2.0
+
+### Added
+- **`ws_target`** (per-app): dedicated WebSocket upstream on a separate port. Generates a `location = {path}/ws` that tunnels the WebSocket through the proxy — required for firmwares like **ESPSomfy-RTS** that serve HTTP on `:80` but WebSocket on `:8080` (also avoids mixed-content blocking on HTTPS pages)
+- **`hide_csp`** (per-app): strips upstream `Content-Security-Policy` / `X-Frame-Options` headers that would prevent the app from loading inside the HA ingress iframe (e.g. ESPSomfy-RTS sends `frame-ancestors 'none'`)
+- Trailing-slash redirect `location = {path} → {path}/` generated for every app: apps using relative assets no longer break when the URL lacks the final slash
+- `client_max_body_size 64m`: large uploads through the proxy (e.g. ESP firmware OTA) no longer fail with HTTP 413
+
+### Changed
+- `csrf_fix` now also rewrites the `Referer` header to the upstream origin: embedded firmwares (ESPSomfy-RTS) validate Referer against Host on every GET when Origin is absent
+- `Connection` header is now conditional (`map $http_upgrade`): `upgrade` only for real WebSocket handshakes instead of being forced on every proxied request, which confused some embedded HTTP servers
+
+---
+
 ## 1.1.2
 
 

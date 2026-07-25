@@ -41,3 +41,51 @@ configuration:
     description: >
       Quando attivato, questa applicazione è nascosta agli utenti non
       amministratori.
+  apps.preserve_path:
+    name: Mantieni percorso
+    description: >
+      Inoltra le richieste così come sono, senza rimuovere il prefisso del
+      percorso proxy. Necessario per le app con ingress HA nativo che includono
+      già il percorso completo nei loro URL.
+  apps.csrf_fix:
+    name: Correzione CSRF
+    description: >
+      Da attivare per le app Django senza ingress HA (es. NSPanel Manager)
+      accessibili tramite l'ingress di multiappproxy. Sostituisce le
+      intestazioni Origin, Referer e Host con l'URL upstream affinché il
+      controllo CSRF veda valori corrispondenti.
+  apps.ws_rewrite:
+    name: Riscrittura WebSocket
+    description: >
+      Inietta uno script nelle risposte HTML che applica una patch a
+      window.WebSocket a runtime: gli URL WebSocket vengono riscritti per
+      passare dal percorso proxy di questa app (es. NSPanel Manager).
+  apps.hassio_ingress_slug:
+    name: Slug ingress HA
+    description: >
+      Slug dell'addon per le app con ingress HA nativo. Quando impostato,
+      multiappproxy risolve il token ingress dell'addon tramite l'API del
+      Supervisor e riscrive quei percorsi affinché il browser passi da
+      multiappproxy.
+  apps.ssl_verify:
+    name: Verifica SSL
+    description: >
+      Verifica il certificato SSL dell'upstream (solo https) contro le CA di
+      sistema. Disattivato per impostazione predefinita per accettare
+      certificati autofirmati della rete locale.
+  apps.ws_target:
+    name: WebSocket separato (URL)
+    description: >
+      URL del server WebSocket quando il dispositivo lo serve su una porta
+      diversa dall'HTTP (es. ESPSomfy-RTS: web su :80, WebSocket su :8080 →
+      http://192.168.1.223:8080). Il proxy lo espone su <percorso>/ws — da una
+      pagina HTTPS il browser si connette in wss:// tramite il proxy, evitando
+      il blocco del contenuto misto.
+  apps.hide_csp:
+    name: Nascondi intestazioni CSP
+    description: >
+      Rimuove le intestazioni Content-Security-Policy e X-Frame-Options
+      restituite dall'applicazione. Da attivare quando l'app vieta la
+      visualizzazione in iframe (frame-ancestors 'none') ma deve essere
+      mostrata nel pannello ingress di Home Assistant (es. ESPSomfy-RTS).
+      Riguarda solo questa app.

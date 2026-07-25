@@ -53,10 +53,11 @@ configuration:
   apps.csrf_fix:
     name: Correctif CSRF
     description: >
-      À activer pour les applications Django sans ingress HA (ex. NSPanel Manager)
-      accessibles via l'ingress multiappproxy. Remplace l'en-tête Origin par l'URL
-      upstream afin que la vérification CSRF de Django voie un Origin et un Host
-      identiques.
+      À activer pour les applications qui vérifient l'origine des requêtes :
+      apps Django sans ingress HA (ex. NSPanel Manager) ou firmwares embarqués
+      (ex. ESPSomfy-RTS). Remplace les en-têtes Origin, Referer et Host par
+      l'URL upstream afin que la vérification CSRF de l'application voie des
+      valeurs cohérentes.
   apps.ws_rewrite:
     name: Réécriture WebSocket
     description: >
@@ -66,6 +67,27 @@ configuration:
       automatiquement pour passer par le chemin proxy de cette application.
       Nécessaire pour les apps dont le backend ou le JavaScript construit des URLs
       WebSocket avec le mauvais host ou chemin (ex. NSPanel Manager).
+  apps.ws_target:
+    name: WebSocket séparé (URL)
+    description: >
+      URL du serveur WebSocket quand l'appareil le sert sur un port différent
+      du HTTP (ex. ESPSomfy-RTS : web sur :80, WebSocket sur :8080 →
+      http://192.168.1.223:8080). Le proxy l'expose alors sur <chemin>/ws :
+      depuis une page HTTPS le navigateur se connecte en wss:// via le proxy,
+      ce qui évite le blocage "mixed content" d'un ws:// direct vers l'appareil.
+  apps.hide_csp:
+    name: Masquer les en-têtes CSP
+    description: >
+      Supprime les en-têtes Content-Security-Policy et X-Frame-Options renvoyés
+      par l'application. À activer quand l'app interdit son affichage en iframe
+      (frame-ancestors 'none') alors qu'elle doit s'afficher dans le panneau
+      ingress de Home Assistant (ex. ESPSomfy-RTS). N'affecte que cette app.
+  apps.ssl_verify:
+    name: Vérification SSL
+    description: >
+      Vérifie le certificat SSL de l'application (upstreams https uniquement)
+      contre les autorités de certification système. Désactivé par défaut pour
+      accepter les certificats auto-signés du réseau local.
   # --- Avancé ---
   apps.hassio_ingress_slug:
     name: Slug ingress HA

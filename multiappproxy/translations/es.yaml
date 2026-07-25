@@ -41,3 +41,50 @@ configuration:
     description: >
       Cuando está activado, esta aplicación está oculta para los usuarios
       no administradores.
+  apps.preserve_path:
+    name: Conservar ruta
+    description: >
+      Reenvía las peticiones tal cual, sin quitar el prefijo de ruta del proxy.
+      Necesario para apps con ingress HA nativo que ya incluyen la ruta completa
+      en sus URLs.
+  apps.csrf_fix:
+    name: Corrección CSRF
+    description: >
+      Activar para apps Django sin ingress HA (ej. NSPanel Manager) accedidas a
+      través del ingress de multiappproxy. Sustituye las cabeceras Origin,
+      Referer y Host por la URL upstream para que la verificación CSRF vea
+      valores coincidentes.
+  apps.ws_rewrite:
+    name: Reescritura WebSocket
+    description: >
+      Inyecta un script en las respuestas HTML que parchea window.WebSocket en
+      tiempo de ejecución: las URLs WebSocket se reescriben para pasar por la
+      ruta proxy de esta app (ej. NSPanel Manager).
+  apps.hassio_ingress_slug:
+    name: Slug ingress HA
+    description: >
+      Slug del addon para apps con ingress HA nativo. Cuando se define,
+      multiappproxy resuelve el token ingress del addon vía la API del
+      Supervisor y reescribe esas rutas para que el navegador pase por
+      multiappproxy.
+  apps.ssl_verify:
+    name: Verificación SSL
+    description: >
+      Verifica el certificado SSL del upstream (solo https) contra las CAs del
+      sistema. Desactivado por defecto para aceptar certificados autofirmados
+      de la red local.
+  apps.ws_target:
+    name: WebSocket separado (URL)
+    description: >
+      URL del servidor WebSocket cuando el dispositivo lo sirve en un puerto
+      distinto del HTTP (ej. ESPSomfy-RTS: web en :80, WebSocket en :8080 →
+      http://192.168.1.223:8080). El proxy lo expone en <ruta>/ws — desde una
+      página HTTPS el navegador se conecta por wss:// a través del proxy,
+      evitando el bloqueo de contenido mixto.
+  apps.hide_csp:
+    name: Ocultar cabeceras CSP
+    description: >
+      Elimina las cabeceras Content-Security-Policy y X-Frame-Options devueltas
+      por la aplicación. Activar cuando la app prohíbe mostrarse en iframe
+      (frame-ancestors 'none') pero debe verse en el panel ingress de Home
+      Assistant (ej. ESPSomfy-RTS). Solo afecta a esta app.

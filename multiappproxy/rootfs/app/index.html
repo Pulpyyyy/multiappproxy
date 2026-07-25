@@ -207,9 +207,11 @@
         const modalSubmit  = document.getElementById('modal-submit');
         const modalCancel  = document.getElementById('modal-cancel');
         let _pendingAppUrl = '';
+        let _pendingAppPath = '';
 
         function openModal(app, appUrl) {
             _pendingAppUrl = appUrl;
+            _pendingAppPath = app.path;
             modalName.textContent = '🔐 ' + app.name;
             modalInput.value = '';
             modalError.textContent = '';
@@ -235,7 +237,9 @@
                 const res = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: _pendingAppUrl.replaceAll(basePath, '').replace(/\/$/, ''), password })
+                    // Send the app path directly instead of deriving it from the URL:
+                    // replaceAll(basePath) could mangle paths containing the base string.
+                    body: JSON.stringify({ path: _pendingAppPath, password })
                 });
                 const data = await res.json();
                 if (data.valid) {
