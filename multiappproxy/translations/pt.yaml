@@ -66,6 +66,17 @@ configuration:
       Slug do addon para apps com ingress HA nativo. Quando definido, o
       multiappproxy resolve o token ingress do addon via API do Supervisor e
       reescreve esses caminhos para que o navegador passe pelo multiappproxy.
+  apps.fast_upstream:
+    name: Upstream leve (ESP, MCU)
+    description: >
+      Ative quando a aplicação corre num dispositivo embebido (ESP32, firmware,
+      pequeno servidor web) e está claramente mais lenta através do proxy do que
+      em acesso direto. Reativa o buffering das respostas para libertar de
+      imediato os poucos sockets do dispositivo e deixa passar os cabeçalhos de
+      cache da aplicação em vez de forçar no-store, para que o navegador e o
+      service worker possam mesmo colocar os ficheiros em cache. Não ative em
+      apps que enviam respostas em streaming (SSE, logs em direto): o buffering
+      atrasaria a sua saída.
   apps.ssl_verify:
     name: Verificação SSL
     description: >

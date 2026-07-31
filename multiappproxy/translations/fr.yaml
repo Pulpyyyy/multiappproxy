@@ -82,6 +82,17 @@ configuration:
       par l'application. À activer quand l'app interdit son affichage en iframe
       (frame-ancestors 'none') alors qu'elle doit s'afficher dans le panneau
       ingress de Home Assistant (ex. ESPSomfy-RTS). N'affecte que cette app.
+  apps.fast_upstream:
+    name: Upstream léger (ESP, MCU)
+    description: >
+      À activer quand l'application tourne sur un appareil embarqué (ESP32,
+      firmware, petit serveur web) et qu'elle est nettement plus lente via le
+      proxy qu'en accès direct. Réactive la mise en tampon des réponses pour
+      libérer immédiatement les rares sockets de l'appareil, et laisse passer
+      les en-têtes de cache de l'application au lieu de forcer no-store, ce qui
+      permet au navigateur et au service worker de mettre les fichiers en cache.
+      Ne pas activer pour les apps qui diffusent des réponses en continu
+      (SSE, logs en direct) : la mise en tampon retarderait leur affichage.
   apps.ssl_verify:
     name: Vérification SSL
     description: >

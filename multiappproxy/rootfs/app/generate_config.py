@@ -352,6 +352,31 @@ http {{
             else:
                 hide_csp_block = ""
 
+            # fast_upstream — tuned for lightweight/embedded upstreams (ESP32
+            # firmwares, MCU web servers) that have very few sockets and no cache.
+            # Two defaults that are fine for a server app but hurt badly here are lifted:
+            #  - proxy_buffering is re-enabled, so nginx drains the upstream at LAN
+            #    speed and releases its socket immediately instead of holding it open
+            #    for the whole (possibly remote) client transfer;
+            #  - the forced no-store headers are dropped, so the app's own cache
+            #    headers reach the browser and its service worker can actually cache
+            #    assets instead of refetching the whole UI from the device every load.
+            # Do not enable for apps that stream responses progressively (SSE, live
+            # logs): buffering would delay their output. WebSocket locations are
+            # unaffected — nginx always tunnels 101 responses unbuffered.
+            if app.get('fast_upstream', False):
+                buffering_directive = "proxy_buffering on;"
+                cache_headers_block = ""
+                print(f"[DEBUG] fast_upstream enabled for {name}: buffering on, upstream cache headers preserved")
+            else:
+                buffering_directive = "proxy_buffering off;"
+                cache_headers_block = """
+            # Prevent caching of proxied responses
+            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+            add_header Pragma "no-cache";
+            add_header Expires 0;
+"""
+
             # SSL verification (only relevant for https upstreams)
             ssl_verify = app.get('ssl_verify', False)
             if url.startswith('https'):
@@ -413,8 +438,8 @@ http {{
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $http_host;
 
-            # Disable response buffering (required for WebSocket)
-            proxy_buffering off;
+            # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
+            {buffering_directive}
 
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
@@ -467,14 +492,9 @@ http {{
             # Rewrite upstream redirects so they go through the proxy
             proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
 
-            # Disable response buffering (required for WebSocket)
-            proxy_buffering off;
-
-            # Prevent caching of proxied responses
-            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
-            add_header Pragma "no-cache";
-            add_header Expires 0;
-
+            # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
+            {buffering_directive}
+{cache_headers_block}
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
             proxy_connect_timeout 30;
@@ -639,16 +659,13 @@ http {{
             # Rewrite upstream redirects so they go through the proxy
             proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
 
-            # Prevent caching of proxied responses
-            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
-            add_header Pragma "no-cache";
-            add_header Expires 0;
-
+{cache_headers_block}
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;
 
-            # Disable response buffering (required for progressive PHP output and WebSocket)
-            proxy_buffering off;
+            # Response buffering — off by default for progressive PHP output and
+            # streaming; on with fast_upstream to free the upstream socket fast.
+            {buffering_directive}
 {sub_filter_block}
         }}
 """

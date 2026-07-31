@@ -162,6 +162,7 @@ apps:
 | `ssl_verify` | boolean | No | `false` | Verify the upstream SSL certificate against the system CA bundle (https upstreams only) |
 | `ws_target` | string | No | - | Dedicated WebSocket upstream (e.g. `http://192.168.1.223:8080`). Exposes it at `{path}/ws` through the proxy — for devices serving HTTP and WebSocket on different ports (ESPSomfy-RTS) |
 | `hide_csp` | boolean | No | `false` | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
+| `fast_upstream` | boolean | No | `false` | Tune the proxy for a lightweight/embedded upstream (ESP32, MCU web server): enable response buffering and stop forcing `no-store` on responses. Use when the app is much slower through the proxy than in direct access. Do **not** enable for apps that stream responses (SSE, live logs) |
 
 ### Categories and Icons
 
@@ -316,7 +317,16 @@ combination handles all of that:
   csrf_fix: true                          # Host/Origin/Referer → IP of the ESP
   hide_csp: true                          # allow rendering in the HA ingress iframe
   ws_target: http://192.168.1.223:8080    # WebSocket tunnelled at /espsomfy/ws
+  fast_upstream: true                     # buffering on + browser caching allowed
 ```
+
+`fast_upstream` matters a lot here. Without it the proxy keeps response
+buffering off and stamps `Cache-Control: no-store` on every response, which on
+an ESP32 means: each of its handful of sockets stays busy for the whole client
+transfer, and the browser plus the app's service worker refetch the entire UI
+from the device on every load. The result is an app that feels fast on
+`http://192.168.1.223/` and sluggish — or stuck in a reload loop — through the
+proxy.
 
 Requirements on the firmware side: the stock ESPSomfy-RTS web app builds its
 API and WebSocket URLs without any base path, so it must include the

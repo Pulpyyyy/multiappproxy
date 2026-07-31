@@ -1,3 +1,10 @@
+## 1.2.2
+
+### Added
+- **`fast_upstream`** (per-app): tunes the proxy for lightweight/embedded upstreams (ESP32 firmwares, MCU web servers). Re-enables `proxy_buffering` so the device's very few sockets are released as soon as nginx has drained the response, and stops forcing `Cache-Control: no-store` so the app's own cache headers reach the browser and its service worker. Fixes apps that are fast in direct access but sluggish or stuck re-bootstrapping through the proxy (e.g. **ESPSomfy-RTS**). Not for apps that stream responses progressively (SSE, live logs)
+
+---
+
 ## 1.2.1
 
 

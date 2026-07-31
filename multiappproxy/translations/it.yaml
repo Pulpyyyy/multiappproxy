@@ -67,6 +67,17 @@ configuration:
       multiappproxy risolve il token ingress dell'addon tramite l'API del
       Supervisor e riscrive quei percorsi affinché il browser passi da
       multiappproxy.
+  apps.fast_upstream:
+    name: Upstream leggero (ESP, MCU)
+    description: >
+      Da attivare quando l'applicazione gira su un dispositivo embedded (ESP32,
+      firmware, piccolo server web) ed è nettamente più lenta tramite il proxy
+      rispetto all'accesso diretto. Riattiva il buffering delle risposte per
+      liberare subito i pochi socket del dispositivo e lascia passare gli header
+      di cache dell'applicazione invece di forzare no-store, così browser e
+      service worker possono davvero mettere in cache i file. Non attivare per
+      app che trasmettono risposte in streaming (SSE, log in tempo reale): il
+      buffering ne ritarderebbe l'output.
   apps.ssl_verify:
     name: Verifica SSL
     description: >
