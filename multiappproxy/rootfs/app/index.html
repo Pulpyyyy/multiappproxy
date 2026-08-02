@@ -386,7 +386,11 @@
                     section.appendChild(grid);
 
                     categoryApps.forEach(app => {
-                        const appUrl = basePath ? `${basePath}${app.path}/` : `${app.path}/`;
+                        // Link straight to the app's entry point when it has one, rather
+                        // than to {path}/ and letting the app redirect: apps that derive
+                        // their base path from the URL compute an empty prefix if they
+                        // are ever rendered at {path}/, and never recover.
+                        const appUrl = `${basePath}${app.path}${app.entry || '/'}`;
 
                         const card = document.createElement('a');
                         card.className = 'app-card';

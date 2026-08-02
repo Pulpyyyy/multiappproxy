@@ -290,6 +290,23 @@ def generate_nginx_config(config_file='/app/config.yml'):
         validate_apps(apps)
         print(f"[DEBUG] Debug mode: {debug_mode}")
 
+        # Probe the upstreams before anything is generated, so both apps.json and the
+        # nginx config see the same, complete set of options.
+        # Autodetection fills the gaps only: anything written in the config wins, so a
+        # detection the user disagrees with can always be pinned by hand.
+        autodetect_default = config.get('autodetect', True)
+        for app in apps:
+            if not app.get('autodetect', autodetect_default):
+                print(f"[AUTO] {app['name']}: autodetect disabled")
+                continue
+            for key, value in detect_app_options(app['name'], app['url']).items():
+                if key in app:
+                    print(f"[AUTO] {app['name']}: {key} detected as {value}, "
+                          f"keeping configured value {app[key]!r}")
+                else:
+                    app[key] = value
+                    print(f"[AUTO] {app['name']}: {key} = {value}")
+
         # Detect Ingress mode via the HA environment variable
         ingress_entry = os.environ.get('INGRESS_ENTRY', '/')
         is_ingress = ingress_entry != '/'
@@ -316,6 +333,13 @@ def generate_nginx_config(config_file='/app/config.yml'):
                 'logo': app.get('logo', ''),
                 'category': app.get('category', 'default'),
                 'path': app_path,
+                # Where the portal must send the browser. Linking straight to the app's
+                # entry point instead of letting it redirect there matters for apps that
+                # derive their base path from the URL: a redirect is the one step we do
+                # not control end to end (HA ingress rewrites Location headers, browsers
+                # cache them), and landing on {path}/ is enough for such an app to
+                # compute an empty prefix and never recover.
+                'entry': app.get('entry_path', ''),
                 'admin': app.get('admin', False),
                 'has_secret': has_secret,
                 'debug': debug_mode
@@ -493,23 +517,9 @@ http {{
 
         # Generate one proxy location block per configured app
         print("[DEBUG] Generating proxy configurations...")
-        autodetect_default = config.get('autodetect', True)
         for app in apps:
             name = app['name']
             url = app['url']
-
-            # Autodetection fills the gaps only: anything written in the config wins,
-            # so a detection the user disagrees with can always be pinned by hand.
-            if app.get('autodetect', autodetect_default):
-                for key, value in detect_app_options(name, url).items():
-                    if key in app:
-                        print(f"[AUTO] {name}: {key} detected as {value}, "
-                              f"keeping configured value {app[key]!r}")
-                    else:
-                        app[key] = value
-                        print(f"[AUTO] {name}: {key} = {value}")
-            else:
-                print(f"[AUTO] {name}: autodetect disabled")
             path = app['path']  # always set by assign_paths()
 
             print(f"[DEBUG] App raw config: {app}")

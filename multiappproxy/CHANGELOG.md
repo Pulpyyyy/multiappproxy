@@ -1,3 +1,11 @@
+## 1.3.2
+
+### Fixed
+- **The portal links straight to an app's entry point** instead of linking to `{path}/` and letting the app redirect there. A redirect is the one step not controlled end to end — HA ingress rewrites `Location` headers, browsers cache them — and for an app that derives its base path from the URL, being rendered at `{path}/` even once is enough to compute an empty prefix and never recover: its router normalises the URL to the default route at the domain root, and every API call, asset and SSE stream then goes to the wrong origin. `apps.json` now carries an `entry` field for this; the nginx redirects remain for anyone typing the URL directly
+- Autodetection now runs before anything is generated, so `apps.json` and the nginx config see the same options (the entry point was detected after `apps.json` had already been written)
+
+---
+
 ## 1.3.1
 
 ### Fixed
