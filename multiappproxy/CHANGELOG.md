@@ -1,3 +1,11 @@
+## 1.3.7
+
+### Fixed
+- **`native_base_path` no longer disables the runtime patch.** An app that prefixes its own URLs from a header still cannot reach what its bundler baked in: vite-style chunk loaders carry an absolute asset base, so lazily loaded route components are requested from the domain root whatever the server says. On BirdNET-Go that broke every route beyond the dashboard — clicking a detection loaded `/ui/assets/Detections-*.js` at the root, 404, and the route fell back to an error page. The patch is idempotent, so it coexists: URLs the app already prefixed are returned untouched, and only the bundler's absolute ones are corrected
+- Stylesheets are rewritten in that mode too — they are static build artefacts the app never prefixes. Markup stays untouched, since rewriting an already-prefixed `src="/…"` would double it
+
+---
+
 ## 1.3.6
 
 ### Added

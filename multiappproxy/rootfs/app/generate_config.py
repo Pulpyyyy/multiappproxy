@@ -673,12 +673,15 @@ http {{
                 # empty on direct access, which leaves just {path} — also correct.
                 prefix_header_block = f"""
             # This app prefixes its own URLs from the header below, so it is forwarded
-            # instead of blanked and nothing is rewritten downstream. X-Forwarded-Prefix
-            # carries the same contract under another name (Grafana, Django, ...).
+            # instead of blanked. X-Forwarded-Prefix carries the same contract under
+            # another name (Grafana, Django, ...).
             proxy_set_header X-Ingress-Path "$http_x_ingress_path{path}";
             proxy_set_header X-Forwarded-Prefix "$http_x_ingress_path{path}";
 
-            # Compression can stay: there is nothing left to filter.
+            # Still blanked: the runtime patch and the stylesheet rewrite below have to
+            # see uncompressed responses. Only HTML and CSS come through here — the JS
+            # bundles are served by the asset location, compression intact.
+            proxy_set_header Accept-Encoding "";
 """
                 # Its Location headers already carry the prefix — only the scheme and
                 # host are missing, without which HA ingress rewrites the bare path into
@@ -865,12 +868,7 @@ http {{
                 # We replace that token prefix with multiappproxy's effective_path so the browser
                 # requests flow back through multiappproxy → Django correctly.
                 # For regular apps, we prepend effective_path to all root-relative paths.
-                if native_base_path:
-                    # Nothing to rewrite: the app already emits its own prefix, and
-                    # filtering the response again would double it. This is also what
-                    # lets the upstream's compression through untouched.
-                    sub_filter_block = ""
-                elif resolved_ingress_path:
+                if resolved_ingress_path:
                     sub_filter_block = f"""
             # App is HA-ingress-aware: replace its own ingress token with our proxy path.
             # This turns /api/hassio_ingress/APP_TOKEN/... → {effective_path}/...
@@ -976,7 +974,30 @@ http {{
                     )
                     print(f"[DEBUG] Runtime URL patch injected for {name} (prefix {effective_path})")
 
-                    sub_filter_block = f"""
+                    if native_base_path:
+                        # The app prefixes its own markup, so rewriting it again would
+                        # double the prefix — src="/api/hassio_ingress/..." starts with
+                        # src="/ and would be prefixed a second time.
+                        #
+                        # Two things it cannot prefix are still rewritten. Its bundler
+                        # bakes an absolute base into the chunk loader, so lazily loaded
+                        # components are requested from the domain root whatever the
+                        # server says — that is what broke BirdNET-Go's detection route.
+                        # The runtime patch catches those where they are used, and being
+                        # idempotent it leaves the URLs the app already prefixed alone.
+                        # Stylesheets are static build artefacts the app never touches,
+                        # so their url(...) references need the rewrite.
+                        sub_filter_block = f"""
+            # The app prefixes its own markup; only what it cannot reach is rewritten.
+            sub_filter_types text/css;
+            sub_filter_once off;
+            sub_filter 'url(/'     'url({effective_path}/';
+            sub_filter "url('/"    "url('{effective_path}/";
+            sub_filter 'url("/'    'url("{effective_path}/';{patch_inject}{ws_inject}"""
+                        print(f"[DEBUG] native_base_path for {name}: markup left alone, "
+                              f"runtime patch kept for bundler-baked asset URLs")
+                    else:
+                        sub_filter_block = f"""
             # Rewrite absolute paths in responses so they go through the proxy.
             # Markup: static assets (src/href), forms (action), HTMX attributes.
             # Stylesheets: url(...) references, which no amount of markup rewriting
