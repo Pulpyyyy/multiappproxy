@@ -393,8 +393,17 @@ http {{
     # Permet de retourner des Location absolus en HTTPS plutôt que relatifs (que HA
     # reconvertirait en http://host:8099/... illisibles par le service worker).
     map $http_x_forwarded_proto $proxy_redirect_proto {{
-        ""      $scheme;
+        ""      $fallback_proto;
         default $http_x_forwarded_proto;
+    }}
+
+    # Fallback when X-Forwarded-Proto is missing. HA ingress always sets
+    # X-Ingress-Path, so its presence means the browser is on the HA page, which is
+    # https whenever HA is reachable over TLS — and an https page could not follow an
+    # http redirect anyway. On direct access, $scheme is the truth.
+    map $http_x_ingress_path $fallback_proto {{
+        ""      $scheme;
+        default https;
     }}
 
     # Map to handle the Ingress path prefix
@@ -925,13 +934,12 @@ http {{
             # send every API call to the domain root. Redirecting the entry point
             # ourselves keeps the browser on a URL the app can parse.
             entry_path = app.get('entry_path', '')
-            # Protocol-relative, and never a bare path. A bare path comes back from HA
-            # ingress as http://$host:8099/... and gets blocked as mixed content on an
-            # HTTPS dashboard; picking the scheme ourselves depends on
-            # $proxy_redirect_proto being right, which it is not when HA omits
-            # X-Forwarded-Proto. '//host/path' lets the browser reuse the scheme of the
-            # page it is already on — https behind the ingress, http on direct access.
-            landing = "//$host" + (
+            # Fully absolute, scheme included. HA ingress prefixes anything that does
+            # not start with http(s):// with http://$host:8099 — it treats a bare path
+            # and a protocol-relative //host/path alike, producing
+            # http://host:8099//host/path, which an HTTPS dashboard blocks as mixed
+            # content. Only an absolute URL is passed through untouched.
+            landing = "$proxy_redirect_proto://$host" + (
                 f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
             )
             # 302, not 301: the entry point comes from a probe replayed at every start,
@@ -987,10 +995,9 @@ http {{
         }}
 """
 
-        # Protocol-relative for the same reason as the entry-point redirects: a bare
-        # path comes back from HA ingress as http://$host:8099/... and gets blocked as
-        # mixed content, and hardcoding the scheme depends on X-Forwarded-Proto.
-        home_redirect = "//$host" + (
+        # Absolute for the same reason as the entry-point redirects: HA ingress
+        # rewrites anything else into http://$host:8099/...
+        home_redirect = "$proxy_redirect_proto://$host" + (
             ingress_entry.rstrip('/') + '/' if is_ingress else '/'
         )
         nginx_config += f"""

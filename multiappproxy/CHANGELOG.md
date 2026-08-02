@@ -1,3 +1,11 @@
+## 1.3.1
+
+### Fixed
+- **Redirects are scheme-absolute again.** HA ingress prefixes any `Location` that does not start with `http(s)://` with `http://$host:8099` — it treats a bare path and a protocol-relative `//host/path` alike, producing `http://host:8099//host/path`, which an HTTPS dashboard blocks as mixed content. Only a fully absolute URL is passed through untouched
+- When `X-Forwarded-Proto` is absent, the scheme now falls back to `https` for requests carrying `X-Ingress-Path` (always set by HA ingress) instead of to `$scheme`, which is plain http on the addon's listener
+
+---
+
 ## 1.3.0
 
 Fewer options to find: an app usually needs nothing but a `name` and a `url`.
