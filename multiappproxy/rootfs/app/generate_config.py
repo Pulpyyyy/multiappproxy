@@ -922,8 +922,17 @@ http {{
                         "(function(){"
                         f'var P="{effective_path}";if(!P)return;'
                         "function f(u){"
-                        'if(typeof u!=="string"||u.charAt(0)!=="/"||u.charAt(1)==="/")return u;'
-                        'return(u===P||u.indexOf(P+"/")===0)?u:P+u;}'
+                        'if(typeof u!=="string")return u;'
+                        'if(u.charAt(0)==="/"&&u.charAt(1)!=="/")'
+                        'return(u===P||u.indexOf(P+"/")===0)?u:P+u;'
+                        # Bundlers resolve their baked asset base against the page origin
+                        # before using it, so what reaches us is a fully absolute URL with
+                        # the prefix missing from its path. Same origin only: anything
+                        # third-party (telemetry, CDNs) must be left strictly alone.
+                        "var o=location.origin;"
+                        'if(u.indexOf(o+"/")===0){var r=u.slice(o.length);'
+                        'if(r!==P&&r.indexOf(P+"/")!==0)return o+P+r;}'
+                        "return u;}"
                         "var F=window.fetch;if(F)window.fetch=function(i,o){"
                         'if(typeof i==="string")i=f(i);'
                         "else if(i&&i.url)i=new Request(f(i.url),i);"

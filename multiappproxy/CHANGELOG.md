@@ -1,3 +1,10 @@
+## 1.3.8
+
+### Fixed
+- **The runtime patch now recognises same-origin absolute URLs.** It only prefixed root-relative ones, and a bundler's chunk loader resolves its baked asset base against the page origin *before* using it — `new URL("/ui/assets/x.css", import.meta.url).href` — so what reached the patch was `https://host/ui/assets/x.css`, which it returned untouched. That is why BirdNET-Go's lazy routes kept failing even with the patch injected: the rejected CSS preload aborts the whole component load. Third-party origins (telemetry, CDNs) are still left strictly alone
+
+---
+
 ## 1.3.7
 
 ### Fixed
