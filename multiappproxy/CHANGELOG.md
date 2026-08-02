@@ -1,97 +1,31 @@
-## 1.3.9
-
-### Fixed
-- **Wrapped constructors lost their interface constants.** Replacing `window.EventSource` and `window.WebSocket` with a plain function dropped `CONNECTING`, `OPEN`, `CLOSING` and `CLOSED`. Reconnection state machines compare `readyState` against exactly those — BirdNET-Go's `ReconnectingEventSource` does — so every comparison silently turned false and the client dropped and reopened its streams in a loop (`SSE connection error, will auto-reconnect`). The streams themselves were healthy: measured against the device, they stay open indefinitely. The constants are now carried over to the wrappers
-
----
-
-## 1.3.8
-
-### Fixed
-- **The runtime patch now recognises same-origin absolute URLs.** It only prefixed root-relative ones, and a bundler's chunk loader resolves its baked asset base against the page origin *before* using it — `new URL("/ui/assets/x.css", import.meta.url).href` — so what reached the patch was `https://host/ui/assets/x.css`, which it returned untouched. That is why BirdNET-Go's lazy routes kept failing even with the patch injected: the rejected CSS preload aborts the whole component load. Third-party origins (telemetry, CDNs) are still left strictly alone
-
----
-
-## 1.3.7
-
-### Fixed
-- **`native_base_path` no longer disables the runtime patch.** An app that prefixes its own URLs from a header still cannot reach what its bundler baked in: vite-style chunk loaders carry an absolute asset base, so lazily loaded route components are requested from the domain root whatever the server says. On BirdNET-Go that broke every route beyond the dashboard — clicking a detection loaded `/ui/assets/Detections-*.js` at the root, 404, and the route fell back to an error page. The patch is idempotent, so it coexists: URLs the app already prefixed are returned untouched, and only the bundler's absolute ones are corrected
-- Stylesheets are rewritten in that mode too — they are static build artefacts the app never prefixes. Markup stays untouched, since rewriting an already-prefixed `src="/…"` would double it
-
----
-
-## 1.3.6
-
-### Added
-- **`native_base_path`** (autodetected): when an app can build its own URLs from a prefix header, the proxy tells it where it lives — `X-Ingress-Path` and `X-Forwarded-Prefix`, set to `$http_x_ingress_path{path}` so the value follows the live request rather than an ingress token frozen at generation time — and stops rewriting altogether. The app prefixes its own HTML, redirects, API calls and lazily loaded components. Detected by replaying the request with a sentinel prefix and looking for it in the response
-- Measured on BirdNET-Go: 16 prefixed references in the document, a prefixed `Location`, and the bundle back to **291 KB instead of 975 KB** — with nothing to filter, compression can stay
-
-### Changed
-- The addon used to blank `X-Ingress-Path` unconditionally, to stop Django apps double-prefixing their static URLs when `sub_filter` was already rewriting. That reasoning only holds while we rewrite: for an app that handles its own prefix it removed the very information it needed. The header is now forwarded for those apps and blanked for the others, and `sub_filter`, the runtime patch and the redirect prefixing are all disabled in that mode so nothing can double up
-
----
-
-## 1.3.5
-
-### Added
-- **The runtime patch now covers URLs assigned to the DOM**, not just network calls: the `src` setter of image, media, source and script elements, the `href` setter of link elements, and `Element.setAttribute` for `src`/`href`. An app doing `img.src = "/api/..."` never goes through `fetch` or `XHR` — BirdNET-Go's spectrograms were the last thing still reaching the domain root. Non-string values pass through untouched, the original getter is kept, and the redefinition stays configurable
-
-### Verified
-- Audited BirdNET-Go's own bundles (1.25 MB, 11 files) for every construct able to emit a URL. Intercepted: `fetch` (23), `XMLHttpRequest` (4), `EventSource` (5), `history.replaceState`/`pushState` (6), `.src`/`.href` assignments (21), CSS `url()` (2). Not intercepted, and why it does not matter: dynamic `import()` (35) resolves against the module URL, already prefixed; `location.href` (8) goes through the app's own base-path helper and is not redefinable in JavaScript anyway; `form action` matches were HLS.js error handling, not forms
-- A structural lint of the generated configuration now stands in for the unavailable `nginx -t`: brace and quote balance, directive termination, and no `$` where a literal was meant — the defect that stopped the addon in 1.3.3
-
----
-
-## 1.3.4
-
-### Fixed
-- **The addon could not start with 1.3.3.** The injected runtime patch carried a `$` — the end anchor of its WebSocket regex — and nginx reads `$` inside a `sub_filter` argument as the start of a variable name, not as a literal. The whole configuration was rejected (`invalid variable name`) and the container stopped. The anchor is unnecessary to capture the path and is gone; a check now refuses any `$` in the injected script and any `sub_filter` argument carrying one
-
----
-
-## 1.3.3
-
-### Added
-- **Runtime URL patch**, injected right after `<head>` so it is in place before any of the app's own scripts run. `sub_filter` only reaches markup: URLs an app builds in JavaScript are invisible to it, and compressed JS bundles cannot be filtered at all. The patch closes that gap where the URL is actually used, prefixing root-absolute ones on `fetch`, `XMLHttpRequest.open`, `EventSource` and `WebSocket`. It is idempotent — a URL already under the proxy path is returned untouched — so an app that resolves its own base path correctly is unaffected, which is why it needs no option
-- **`history.pushState` / `replaceState` are patched too**, and that is the one that mattered: a router rewriting the address bar without the prefix makes every app that derives its base path from the URL compute an empty one, after which every call, asset and stream targets the domain root with no way back
-- **Stylesheets are rewritten**: `url(...)` references are absolute in most bundlers' output and no amount of markup rewriting reaches them. `text/css` joins `sub_filter_types`, and CSS now goes through the main location rather than the compressed asset one — small next to a JS bundle, so serving it uncompressed costs little
-
----
-
-## 1.3.2
-
-### Fixed
-- **The portal links straight to an app's entry point** instead of linking to `{path}/` and letting the app redirect there. A redirect is the one step not controlled end to end — HA ingress rewrites `Location` headers, browsers cache them — and for an app that derives its base path from the URL, being rendered at `{path}/` even once is enough to compute an empty prefix and never recover: its router normalises the URL to the default route at the domain root, and every API call, asset and SSE stream then goes to the wrong origin. `apps.json` now carries an `entry` field for this; the nginx redirects remain for anyone typing the URL directly
-- Autodetection now runs before anything is generated, so `apps.json` and the nginx config see the same options (the entry point was detected after `apps.json` had already been written)
-
----
-
-## 1.3.1
-
-### Fixed
-- **Redirects are scheme-absolute again.** HA ingress prefixes any `Location` that does not start with `http(s)://` with `http://$host:8099` — it treats a bare path and a protocol-relative `//host/path` alike, producing `http://host:8099//host/path`, which an HTTPS dashboard blocks as mixed content. Only a fully absolute URL is passed through untouched
-- When `X-Forwarded-Proto` is absent, the scheme now falls back to `https` for requests carrying `X-Ingress-Path` (always set by HA ingress) instead of to `$scheme`, which is plain http on the addon's listener
-
----
-
 ## 1.3.0
 
-Fewer options to find: an app usually needs nothing but a `name` and a `url`.
+Fewer options to find, and apps that work behind the proxy without being told how.
 
 ### Breaking
 - **`path` is no longer configurable** — the proxy path is derived from the app name (`BirdNET-Go` → `/birdnet-go`), accents folded, collisions and portal routes (`/api`, `/static`) resolved with a numeric suffix. It is deterministic, so URLs stay stable across restarts, **but apps whose configured path did not match their name change URL**: existing bookmarks and dashboard links must be updated. A leftover `path` is still accepted by the schema so older configurations start, and is reported as ignored in the log
 
 ### Added
-- **Autodetection** (on by default, `autodetect: false` to disable globally or per app): each upstream is probed at startup and the options that can be read off an HTTP response are inferred — `entry_path` (the app redirects its root elsewhere), `hide_csp` (`frame-ancestors 'none'` / `X-Frame-Options: DENY`), `csrf_fix` (a `403` appearing only once `Origin`/`Referer` are foreign, including a `401` baseline turning into `403`). Configured values always win, every decision is logged as `[AUTO] …`, and an unreachable upstream degrades to the configured options instead of blocking startup.
-  `csrf_fix` detection is best-effort by construction: an app whose check is confined to the endpoints its UI calls cannot be seen from the pages we know about — ESPSomfy-RTS answers 200 on `/` whatever the Origin and only rejects on `/bootstrap` — and still needs the option set by hand
-- **`entry_path`** (per-app, usually autodetected): internal path the browser is sent to when the app is opened. Apps that answer their root with a redirect never reach it through HA ingress — the ingress follows the redirect itself, leaving the browser on `{path}/`, where apps deriving their base path from the URL compute the wrong prefix and send every call to the domain root (BirdNET-Go)
+- **Autodetection** (on by default, `autodetect: false` to disable globally or per app). Each upstream is probed at startup and the options that can be read off an HTTP response are inferred:
+
+  | Inferred | Signal |
+  |---|---|
+  | `entry_path` | the app answers its root with a redirect elsewhere |
+  | `hide_csp` | `frame-ancestors 'none'` or `X-Frame-Options: DENY` |
+  | `csrf_fix` | a `403` appearing only once `Origin`/`Referer` are foreign |
+  | `native_base_path` | a sentinel sent as `X-Ingress-Path` comes back in the response |
+
+  Configured values always win, every decision is logged as `[AUTO] …`, and an unreachable upstream degrades to the configured options instead of blocking startup. `csrf_fix` stays best-effort: an app whose check is confined to the endpoints its UI calls cannot be seen from the pages we know about — ESPSomfy-RTS answers 200 on `/` whatever the Origin and only rejects on `/bootstrap` — and still needs the option set by hand
+- **`native_base_path`**: when an app can build its own URLs from a prefix header, the proxy tells it where it lives (`X-Ingress-Path` and `X-Forwarded-Prefix`, set to `$http_x_ingress_path{path}` so the value follows the live request rather than an ingress token frozen at generation time) and stops rewriting its markup. The addon used to blank that header unconditionally — a rule that made sense only while rewriting, and that removed the very information such an app needed
+- **`entry_path`**: internal path the browser is sent to when the app is opened. The portal links straight to it rather than letting the app redirect: HA ingress follows redirects itself, and an app that derives its base path from the URL only has to be rendered at `{path}/` once to compute an empty prefix and never recover
+- **Runtime URL patch**, injected before the app's own scripts. `sub_filter` only reaches markup; URLs built in JavaScript are invisible to it and compressed bundles cannot be filtered at all. The patch prefixes root-relative *and* same-origin absolute URLs on `fetch`, `XMLHttpRequest`, `EventSource`, `WebSocket`, the `src`/`href` setters of image, media, source, script and link elements, `setAttribute`, and `history.pushState`/`replaceState`. It is idempotent, so an app that resolves its own base path correctly is unaffected — which is what lets it apply everywhere without an option. Third-party origins are left strictly alone
 
 ### Changed
-- Static assets are now always served from their dedicated location, with no option to enable: it only matches requests with a file extension, so it cannot affect HTML, API calls, SSE or WebSockets. `fast_upstream` is back to what genuinely needs a decision — response buffering and cache headers on the app's own responses
-
-### Fixed
-- **Redirects carry a host and are no longer permanent.** They were emitted as a bare path, which HA ingress turns into `http://$host:8099/...` — blocked as mixed content on an HTTPS dashboard — and as a `301`, which browsers cache indefinitely and replay without ever contacting the server again, so updating the addon could not reach a client that had already cached a wrong one. They are now `302` and protocol-relative (`//$host/...`), letting the browser reuse the scheme of the page it is on: https behind the ingress, http on direct access. A browser still holding a cached `301` from an earlier version must be cleared once (private window, or clear cached files)
-- `sub_filter_types` no longer lists `text/html`, which nginx always filters — it warned `duplicate MIME type "text/html"` on every start
+- Static assets are always served from a dedicated location that keeps upstream compression and cache headers. It only matches requests with a file extension, so it cannot affect HTML, API calls, SSE or WebSockets. Measured on a SPA bundle: **291 KB instead of 975 KB**, cached instead of refetched on every load
+- Stylesheets are rewritten (`url(...)` references are absolute in most bundler output and markup rewriting never reaches them)
+- `fast_upstream` is back to what genuinely needs a decision: response buffering and cache headers on the app's own responses
+- Redirects are `302` and scheme-absolute. HA ingress prefixes any `Location` that does not start with `http(s)://` with `http://$host:8099`, which an HTTPS dashboard blocks as mixed content; and a `301` is cached by browsers indefinitely, so a fixed configuration never reaches a client that already holds a wrong one. When `X-Forwarded-Proto` is absent the scheme falls back to `https` for requests carrying `X-Ingress-Path`
+- `sub_filter_types` no longer lists `text/html`, which nginx always filters — it warned `duplicate MIME type` on every start
 
 ---
 
