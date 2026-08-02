@@ -1,3 +1,14 @@
+## 1.3.5
+
+### Added
+- **The runtime patch now covers URLs assigned to the DOM**, not just network calls: the `src` setter of image, media, source and script elements, the `href` setter of link elements, and `Element.setAttribute` for `src`/`href`. An app doing `img.src = "/api/..."` never goes through `fetch` or `XHR` — BirdNET-Go's spectrograms were the last thing still reaching the domain root. Non-string values pass through untouched, the original getter is kept, and the redefinition stays configurable
+
+### Verified
+- Audited BirdNET-Go's own bundles (1.25 MB, 11 files) for every construct able to emit a URL. Intercepted: `fetch` (23), `XMLHttpRequest` (4), `EventSource` (5), `history.replaceState`/`pushState` (6), `.src`/`.href` assignments (21), CSS `url()` (2). Not intercepted, and why it does not matter: dynamic `import()` (35) resolves against the module URL, already prefixed; `location.href` (8) goes through the app's own base-path helper and is not redefinable in JavaScript anyway; `form action` matches were HLS.js error handling, not forms
+- A structural lint of the generated configuration now stands in for the unavailable `nginx -t`: brace and quote balance, directive termination, and no `$` where a literal was meant — the defect that stopped the addon in 1.3.3
+
+---
+
 ## 1.3.4
 
 ### Fixed

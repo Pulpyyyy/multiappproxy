@@ -883,6 +883,25 @@ http {{
                         '["pushState","replaceState"].forEach(function(n){'
                         "var o=history[n];history[n]=function(s,t,u){"
                         "return o.call(this,s,t,u==null?u:f(String(u)));};});"
+                        # Media assigned from script never touches fetch or XHR: an app
+                        # doing img.src="/api/..." (spectrograms, thumbnails, audio)
+                        # would still reach the domain root. Patch the property setter
+                        # and setAttribute, the only two ways to get there.
+                        "function P2(C,k){if(!C)return;"
+                        "var d=Object.getOwnPropertyDescriptor(C.prototype,k);"
+                        "if(!d||!d.set)return;"
+                        "Object.defineProperty(C.prototype,k,{configurable:true,"
+                        "enumerable:d.enumerable,get:d.get,set:function(v){"
+                        'd.set.call(this,typeof v==="string"?f(v):v);}});}'
+                        "P2(window.HTMLImageElement,\"src\");"
+                        "P2(window.HTMLMediaElement,\"src\");"
+                        "P2(window.HTMLSourceElement,\"src\");"
+                        "P2(window.HTMLScriptElement,\"src\");"
+                        "P2(window.HTMLLinkElement,\"href\");"
+                        "var SA=Element.prototype.setAttribute;"
+                        "Element.prototype.setAttribute=function(n,v){"
+                        'if((n==="src"||n==="href")&&typeof v==="string")v=f(v);'
+                        "return SA.call(this,n,v);};"
                         "}());"
                     )
                     patch_inject = (
