@@ -1,3 +1,10 @@
+## 1.3.1
+
+### Fixed
+- **Redirects are now absolute URLs.** The entry-point, trailing-slash and auth-failure redirects emitted a bare path, and HA ingress rewrites a relative `Location` into `http://$host:8099/...` — which the browser blocks as mixed content on an HTTPS dashboard (`Mixed Content: … requested an insecure resource`). They now build `$proxy_redirect_proto://$host/...` like `proxy_redirect` already did. The trailing-slash redirect had carried the flaw silently since 1.2.0; the entry-point redirect added in 1.3.0 made it fire on every app open
+
+---
+
 ## 1.3.0
 
 Fewer options to find: an app usually needs nothing but a `name` and a `url`.

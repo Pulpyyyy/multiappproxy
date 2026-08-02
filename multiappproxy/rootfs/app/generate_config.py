@@ -905,7 +905,14 @@ http {{
             # send every API call to the domain root. Redirecting the entry point
             # ourselves keeps the browser on a URL the app can parse.
             entry_path = app.get('entry_path', '')
-            landing = f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
+            # Absolute URL, never a bare path: HA ingress rewrites a relative Location
+            # into http://$host:8099/... , which the browser then blocks as mixed
+            # content on an HTTPS dashboard. Same reason proxy_redirect above builds
+            # absolute URLs. $host carries no port, $proxy_redirect_proto is https
+            # behind the ingress and $scheme on direct access.
+            landing = "$proxy_redirect_proto://$host" + (
+                f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
+            )
             if entry_path:
                 print(f"[DEBUG] entry_path for {name}: {path}/ → {landing}")
                 nginx_config += f"""
@@ -955,7 +962,12 @@ http {{
         }}
 """
 
-        home_redirect = ingress_entry.rstrip('/') + '/' if is_ingress else '/'
+        # Absolute for the same reason as the entry-point redirects: a relative
+        # Location comes back from HA ingress as http://$host:8099/... and gets
+        # blocked as mixed content.
+        home_redirect = "$proxy_redirect_proto://$host" + (
+            ingress_entry.rstrip('/') + '/' if is_ingress else '/'
+        )
         nginx_config += f"""
         # Auth failure handler: redirect to portal home page
         location @auth_error {{
