@@ -940,11 +940,18 @@ http {{
                         "var X=XMLHttpRequest.prototype.open;"
                         "XMLHttpRequest.prototype.open=function(){"
                         "arguments[1]=f(arguments[1]);return X.apply(this,arguments);};"
-                        "var E=window.EventSource;if(E){"
-                        "window.EventSource=function(u,c){return new E(f(u),c);};"
-                        "window.EventSource.prototype=E.prototype;}"
-                        "var W=window.WebSocket;if(W){"
-                        "window.WebSocket=function(u,p){"
+                        # Wrapping a constructor must carry its interface constants over.
+                        # A bare function loses EventSource.CONNECTING/OPEN and
+                        # WebSocket.CLOSING/CLOSED, and reconnection state machines compare
+                        # against exactly those: every comparison silently turns false and
+                        # the client drops and reopens the stream in a loop.
+                        "function K(N,C){C.prototype=N.prototype;"
+                        '["CONNECTING","OPEN","CLOSING","CLOSED"].forEach(function(k){'
+                        "if(k in N)try{C[k]=N[k];}catch(e){}});return C;}"
+                        "var E=window.EventSource;"
+                        "if(E)window.EventSource=K(E,function(u,c){return new E(f(u),c);});"
+                        "var W=window.WebSocket;"
+                        "if(W)window.WebSocket=K(W,function(u,p){"
                         # No '$' anywhere in this script: nginx reads it as the start of
                         # a variable inside a sub_filter argument and refuses the whole
                         # configuration ("invalid variable name"). The regex therefore
@@ -952,8 +959,7 @@ http {{
                         'if(typeof u==="string"){var m=u.match(/^wss?:\\/\\/[^\\/]+(\\/.*)/);'
                         'if(m)u=(location.protocol==="https:"?"wss":"ws")+"://"+location.host+f(m[1]);'
                         "else u=f(u);}"
-                        "return p?new W(u,p):new W(u);};"
-                        "window.WebSocket.prototype=W.prototype;}"
+                        "return p?new W(u,p):new W(u);});"
                         '["pushState","replaceState"].forEach(function(n){'
                         "var o=history[n];history[n]=function(s,t,u){"
                         "return o.call(this,s,t,u==null?u:f(String(u)));};});"

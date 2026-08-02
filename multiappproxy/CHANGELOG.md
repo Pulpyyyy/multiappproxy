@@ -1,3 +1,10 @@
+## 1.3.9
+
+### Fixed
+- **Wrapped constructors lost their interface constants.** Replacing `window.EventSource` and `window.WebSocket` with a plain function dropped `CONNECTING`, `OPEN`, `CLOSING` and `CLOSED`. Reconnection state machines compare `readyState` against exactly those — BirdNET-Go's `ReconnectingEventSource` does — so every comparison silently turned false and the client dropped and reopened its streams in a loop (`SSE connection error, will auto-reconnect`). The streams themselves were healthy: measured against the device, they stay open indefinitely. The constants are now carried over to the wrappers
+
+---
+
 ## 1.3.8
 
 ### Fixed
