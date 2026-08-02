@@ -49,6 +49,7 @@ jobs:
 
           # 'latest' is the tag Home Assistant installs from: never a candidate.
           KEEP_LIST="latest${KEEP:+,$KEEP}"
+          echo "pattern=[$PATTERN]"
           deleted=0
           skipped=0
 
@@ -67,6 +68,7 @@ jobs:
             done
 
             echo "  $(echo "$tags" | grep -c . ) tag(s) listed"
+            echo "  sample: $(echo "$tags" | head -5 | paste -sd' ' -)"
             for tag in $tags; do
               if ! echo "$tag" | grep -qE "$PATTERN"; then continue; fi
               if echo ",$KEEP_LIST," | grep -q ",$tag,"; then
