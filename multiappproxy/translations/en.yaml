@@ -80,16 +80,16 @@ configuration:
       iframe (frame-ancestors 'none') but must render inside the Home Assistant
       ingress panel (e.g. ESPSomfy-RTS). Only affects this app.
   apps.fast_upstream:
-    name: Lightweight upstream (ESP, MCU)
+    name: Optimise for this backend
     description: >
-      Enable when the application runs on an embedded device (ESP32, firmware,
-      small web server) and is noticeably slower through the proxy than in
-      direct access. Re-enables response buffering so the device's very few
-      sockets are freed immediately, and lets the application's own cache
-      headers through instead of forcing no-store, so the browser and its
-      service worker can actually cache assets. Do not enable for apps that
-      stream responses progressively (SSE, live logs): buffering would delay
-      their output.
+      Enable when the application is noticeably slower through the proxy than in
+      direct access: embedded device (ESP32, firmware) or modern app serving a
+      large JavaScript bundle. Re-enables response buffering so the backend's
+      sockets are freed immediately, lets its own cache headers through instead
+      of forcing no-store, and serves static files (js, css, fonts, images,
+      audio) from a dedicated location that keeps their compression. Do not
+      enable for apps that stream responses progressively (SSE, live logs),
+      unless they send the X-Accel-Buffering: no header, which nginx honours.
   apps.ssl_verify:
     name: SSL verification
     description: >

@@ -1,3 +1,14 @@
+## 1.2.3
+
+### Changed
+- **`fast_upstream`** now also gives static assets (`js`, `css`, fonts, images, audio, source maps) their own nginx location. The main location has to blank `Accept-Encoding` so `sub_filter` can rewrite HTML, but `sub_filter_types` is `text/html` only — assets were being decompressed for nothing and stripped of their `Cache-Control`. Measured on a BirdNET-Go SPA: main bundle **975 KB instead of 291 KB**, refetched on every load because the upstream `max-age=31536000, immutable` was overwritten with `no-store`
+- `fast_upstream` is no longer limited to embedded devices: it applies to any backend slower through the proxy than in direct access, including SPA backends serving a large asset bundle. Apps streaming responses (SSE) are safe as long as they send `X-Accel-Buffering: no`, which nginx honours even with buffering on
+
+### Documentation
+- BirdNET-Go section added: it detects its own base path from the segment before `/ui/`, so it needs no rewriting beyond the default `sub_filter`
+
+---
+
 ## 1.2.2
 
 ### Added

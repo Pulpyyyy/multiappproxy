@@ -83,16 +83,17 @@ configuration:
       (frame-ancestors 'none') alors qu'elle doit s'afficher dans le panneau
       ingress de Home Assistant (ex. ESPSomfy-RTS). N'affecte que cette app.
   apps.fast_upstream:
-    name: Upstream léger (ESP, MCU)
+    name: Optimiser pour ce backend
     description: >
-      À activer quand l'application tourne sur un appareil embarqué (ESP32,
-      firmware, petit serveur web) et qu'elle est nettement plus lente via le
-      proxy qu'en accès direct. Réactive la mise en tampon des réponses pour
-      libérer immédiatement les rares sockets de l'appareil, et laisse passer
-      les en-têtes de cache de l'application au lieu de forcer no-store, ce qui
-      permet au navigateur et au service worker de mettre les fichiers en cache.
-      Ne pas activer pour les apps qui diffusent des réponses en continu
-      (SSE, logs en direct) : la mise en tampon retarderait leur affichage.
+      À activer quand l'application est nettement plus lente via le proxy qu'en
+      accès direct : appareil embarqué (ESP32, firmware) ou application moderne
+      servant un gros bundle JavaScript. Réactive la mise en tampon des réponses
+      pour libérer immédiatement les sockets du backend, laisse passer ses
+      en-têtes de cache au lieu de forcer no-store, et sert les fichiers
+      statiques (js, css, polices, images, sons) via une location dédiée qui
+      conserve leur compression. Ne pas activer pour les apps qui diffusent des
+      réponses en continu (SSE, logs en direct), sauf si elles envoient
+      l'en-tête X-Accel-Buffering: no, que nginx respecte.
   apps.ssl_verify:
     name: Vérification SSL
     description: >

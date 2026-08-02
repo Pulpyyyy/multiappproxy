@@ -67,16 +67,17 @@ configuration:
       multiappproxy das Ingress-Token des Addons über die Supervisor-API auf
       und schreibt diese Pfade um, damit der Browser über multiappproxy geht.
   apps.fast_upstream:
-    name: Leichtgewichtiger Upstream (ESP, MCU)
+    name: Für dieses Backend optimieren
     description: >
-      Aktivieren, wenn die Anwendung auf einem eingebetteten Gerät läuft (ESP32,
-      Firmware, kleiner Webserver) und über den Proxy deutlich langsamer ist als
-      im Direktzugriff. Aktiviert die Antwort-Pufferung wieder, damit die sehr
-      wenigen Sockets des Geräts sofort freigegeben werden, und lässt die
-      Cache-Header der Anwendung durch, statt no-store zu erzwingen — so können
-      Browser und Service Worker die Dateien tatsächlich zwischenspeichern.
-      Nicht aktivieren für Apps, die Antworten fortlaufend streamen (SSE,
-      Live-Logs): die Pufferung würde deren Ausgabe verzögern.
+      Aktivieren, wenn die Anwendung über den Proxy deutlich langsamer ist als
+      im Direktzugriff: eingebettetes Gerät (ESP32, Firmware) oder moderne App
+      mit großem JavaScript-Bundle. Aktiviert die Antwort-Pufferung wieder,
+      damit die Sockets des Backends sofort freigegeben werden, lässt dessen
+      Cache-Header durch, statt no-store zu erzwingen, und liefert statische
+      Dateien (js, css, Schriften, Bilder, Audio) über eine eigene Location aus,
+      die ihre Komprimierung erhält. Nicht aktivieren für Apps, die Antworten
+      fortlaufend streamen (SSE, Live-Logs) — außer sie senden den Header
+      X-Accel-Buffering: no, den nginx berücksichtigt.
   apps.ssl_verify:
     name: SSL-Prüfung
     description: >

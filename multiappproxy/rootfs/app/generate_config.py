@@ -352,19 +352,25 @@ http {{
             else:
                 hide_csp_block = ""
 
-            # fast_upstream — tuned for lightweight/embedded upstreams (ESP32
-            # firmwares, MCU web servers) that have very few sockets and no cache.
-            # Two defaults that are fine for a server app but hurt badly here are lifted:
+            # fast_upstream — stops the proxy from pessimizing backends that are
+            # noticeably slower through it than in direct access (ESP32 firmwares,
+            # MCU web servers, but also SPA backends serving a large asset bundle).
+            # Three defaults that suit a generic app but hurt here are lifted:
             #  - proxy_buffering is re-enabled, so nginx drains the upstream at LAN
             #    speed and releases its socket immediately instead of holding it open
             #    for the whole (possibly remote) client transfer;
             #  - the forced no-store headers are dropped, so the app's own cache
             #    headers reach the browser and its service worker can actually cache
-            #    assets instead of refetching the whole UI from the device every load.
+            #    assets instead of refetching the whole UI on every load;
+            #  - static assets get their own location (see asset_location below) that
+            #    keeps upstream compression, which the main location has to disable
+            #    for sub_filter.
             # Do not enable for apps that stream responses progressively (SSE, live
-            # logs): buffering would delay their output. WebSocket locations are
-            # unaffected — nginx always tunnels 101 responses unbuffered.
-            if app.get('fast_upstream', False):
+            # logs) unless they send X-Accel-Buffering: no, which nginx honours even
+            # with buffering on. WebSocket locations are unaffected — nginx always
+            # tunnels 101 responses unbuffered.
+            fast_upstream = app.get('fast_upstream', False)
+            if fast_upstream:
                 buffering_directive = "proxy_buffering on;"
                 cache_headers_block = ""
                 print(f"[DEBUG] fast_upstream enabled for {name}: buffering on, upstream cache headers preserved")
@@ -669,6 +675,48 @@ http {{
 {sub_filter_block}
         }}
 """
+
+                # Static assets get their own location under fast_upstream.
+                # The main location has to blank Accept-Encoding so sub_filter can
+                # rewrite HTML, but sub_filter_types is text/html only — JS, CSS and
+                # images were being decompressed for nothing (a modern SPA bundle
+                # easily triples in size) and stripped of their Cache-Control, so the
+                # browser refetched the whole bundle on every load. Here compression
+                # and the upstream cache headers are left alone. A regex location wins
+                # over the prefix location above regardless of declaration order.
+                if fast_upstream:
+                    asset_exts = (
+                        'js|mjs|css|map|woff2?|ttf|otf|eot|'
+                        'png|jpe?g|gif|svg|webp|avif|ico|webmanifest|mp3|wav|ogg'
+                    )
+                    nginx_config += f"""
+        # Static assets for {name} (compression and upstream caching preserved)
+        location ~* ^{path}/.+\\.(?:{asset_exts})$ {{{auth_request_block}
+            {token_config}
+            # Strip the path prefix before forwarding to the upstream
+            rewrite ^{path}/(.*) /$1 break;
+
+            proxy_pass {url};
+            proxy_http_version 1.1;
+
+            {ssl_block}{hide_csp_block}
+
+            # Standard forwarding headers
+            {host_header}
+            {csrf_origin_header}
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Ingress-Path "";
+
+            # Rewrite upstream redirects so they go through the proxy
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
+
+            proxy_buffering on;
+        }}
+"""
+                    print(f"[DEBUG] fast_upstream: dedicated static asset location for {name}")
 
             # Redirect /path → /path/ : apps with relative assets (embedded firmwares,
             # simple web UIs) resolve them against the wrong base without the slash.

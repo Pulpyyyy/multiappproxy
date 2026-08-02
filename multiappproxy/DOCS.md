@@ -162,7 +162,7 @@ apps:
 | `ssl_verify` | boolean | No | `false` | Verify the upstream SSL certificate against the system CA bundle (https upstreams only) |
 | `ws_target` | string | No | - | Dedicated WebSocket upstream (e.g. `http://192.168.1.223:8080`). Exposes it at `{path}/ws` through the proxy — for devices serving HTTP and WebSocket on different ports (ESPSomfy-RTS) |
 | `hide_csp` | boolean | No | `false` | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
-| `fast_upstream` | boolean | No | `false` | Tune the proxy for a lightweight/embedded upstream (ESP32, MCU web server): enable response buffering and stop forcing `no-store` on responses. Use when the app is much slower through the proxy than in direct access. Do **not** enable for apps that stream responses (SSE, live logs) |
+| `fast_upstream` | boolean | No | `false` | Stop the proxy from pessimizing the backend: enable response buffering, stop forcing `no-store`, and serve static assets from a dedicated location that keeps upstream compression. Use when the app is much slower through the proxy than in direct access (embedded devices, SPA backends with a large bundle). Do **not** enable for apps that stream responses (SSE, live logs) unless they send `X-Accel-Buffering: no` |
 
 ### Categories and Icons
 
@@ -334,6 +334,36 @@ proxy-aware patch (base-path detection in `index.js`); see the
 [ESPSomfy-RTS fork](https://github.com/Pulpyyyy/ESPSomfy-RTS). The browser
 never talks to the ESP directly: HTTPS/WSS terminate at HA and nginx forwards
 in clear HTTP/WS on the LAN — no mixed content.
+
+#### BirdNET-Go (bird sound identification)
+
+BirdNET-Go serves a Svelte SPA under `/ui/` and derives its own base path from
+the URL segment that precedes `/ui/`. Behind the proxy at `/birdnet`, the
+browser lands on `/birdnet/ui/dashboard` and the app resolves every API, SSE
+and media URL under `/birdnet` on its own — no rewriting is needed beyond the
+default `sub_filter`, which fixes the asset paths in the initial HTML.
+
+```yaml
+- name: BirdNET-Go
+  url: http://192.168.1.119:8080
+  path: /birdnet
+  icon: 🐦
+  description: "Identification des oiseaux au son"
+  category: Domotique
+  fast_upstream: true                     # SPA bundle: compression + caching
+```
+
+`fast_upstream` matters here for the asset bundle, not for sockets: without it
+the main JS bundle is served uncompressed (975 KB instead of 291 KB) and its
+`Cache-Control: public, max-age=31536000, immutable` is overwritten with
+`no-store`, so the browser refetches the whole SPA on every load. Its SSE
+endpoints (`/api/v2/notifications/stream`, `/api/v2/detections/stream`,
+`/api/v2/streams/audio-level`) send `X-Accel-Buffering: no`, which nginx
+honours, so response buffering does not delay them.
+
+No `hide_csp` is needed: BirdNET-Go sends `frame-ancestors 'self'` and
+`X-Frame-Options: SAMEORIGIN`, and since the proxied document is served from
+the Home Assistant origin, both are satisfied inside the ingress iframe.
 
 ### ⚙️ Other Applications
 

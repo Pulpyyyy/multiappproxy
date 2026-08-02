@@ -68,16 +68,17 @@ configuration:
       Supervisor e riscrive quei percorsi affinché il browser passi da
       multiappproxy.
   apps.fast_upstream:
-    name: Upstream leggero (ESP, MCU)
+    name: Ottimizza per questo backend
     description: >
-      Da attivare quando l'applicazione gira su un dispositivo embedded (ESP32,
-      firmware, piccolo server web) ed è nettamente più lenta tramite il proxy
-      rispetto all'accesso diretto. Riattiva il buffering delle risposte per
-      liberare subito i pochi socket del dispositivo e lascia passare gli header
-      di cache dell'applicazione invece di forzare no-store, così browser e
-      service worker possono davvero mettere in cache i file. Non attivare per
-      app che trasmettono risposte in streaming (SSE, log in tempo reale): il
-      buffering ne ritarderebbe l'output.
+      Da attivare quando l'applicazione è nettamente più lenta tramite il proxy
+      rispetto all'accesso diretto: dispositivo embedded (ESP32, firmware) o
+      applicazione moderna che serve un grosso bundle JavaScript. Riattiva il
+      buffering delle risposte per liberare subito i socket del backend, lascia
+      passare i suoi header di cache invece di forzare no-store e serve i file
+      statici (js, css, font, immagini, audio) da una location dedicata che ne
+      conserva la compressione. Non attivare per app che trasmettono risposte in
+      streaming (SSE, log in tempo reale), a meno che non inviino l'header
+      X-Accel-Buffering: no, che nginx rispetta.
   apps.ssl_verify:
     name: Verifica SSL
     description: >
