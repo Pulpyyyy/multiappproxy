@@ -183,19 +183,40 @@ def detect_app_options(name: str, url: str) -> dict:
     if (frame_ancestors and "'none'" in frame_ancestors.group(1).lower()) or xfo == 'DENY':
         detected['hide_csp'] = True
 
-    # csrf_fix — replay the same request with the foreign Origin/Referer a browser sends
-    # through the ingress. A 403 that appears only in the second probe means the app
-    # validates the request origin.
+    # csrf_fix — replay a request with the foreign Origin/Referer a browser sends
+    # through the ingress, and look for a rejection that appears only then.
+    #
     # The Host header is deliberately left correct: upstreams reached through a
     # host-routing reverse proxy answer 403/404 to an unknown Host, which would look
-    # like an origin check that isn't there. Apps that compare Referer against Host
-    # (embedded firmwares) still fail this probe, since only the Referer is foreign.
-    second = _probe_get(base, {
+    # like an origin check that isn't there.
+    #
+    # Both the root and the entry point are tried, and a 401 baseline is not
+    # disqualifying: what matters is that the status turns into a 403 once the Origin
+    # is foreign.
+    #
+    # This stays best-effort by construction. An app whose check is confined to the
+    # endpoints its UI calls cannot be caught from the pages we know about:
+    # ESPSomfy-RTS answers 200 on / whatever the Origin and only turns 401 into 403 on
+    # /bootstrap, an endpoint nothing in the response reveals. Such apps still need
+    # csrf_fix set by hand — hence never *clearing* a configured value from a probe.
+    foreign = {
         'Origin': f'https://{_PROBE_HOST}',
         'Referer': f'https://{_PROBE_HOST}/',
-    })
-    if second is not None and second[0] in (401, 403) and status not in (401, 403):
-        detected['csrf_fix'] = True
+    }
+    targets = [base]
+    if detected.get('entry_path'):
+        targets.append(base.rstrip('/') + detected['entry_path'])
+
+    for target in targets:
+        baseline = first if target == base else _probe_get(target)
+        if baseline is None:
+            continue
+        probed = _probe_get(target, foreign)
+        if probed is None:
+            continue
+        if probed[0] == 403 and baseline[0] != 403:
+            detected['csrf_fix'] = True
+            break
 
     return detected
 
@@ -685,7 +706,8 @@ http {{
             proxy_connect_timeout 30;
 
             # Rewrite absolute paths in HTML/JS/CSS responses to add the proxy prefix
-            sub_filter_types text/html text/css text/javascript application/javascript application/json;
+            # text/html is always filtered, listing it would warn about a duplicate
+            sub_filter_types text/css text/javascript application/javascript application/json;
             sub_filter_once off;
             sub_filter 'src="/' 'src="{effective_path}/';
             sub_filter 'href="/' 'href="{effective_path}/';
@@ -767,7 +789,6 @@ http {{
             # App is HA-ingress-aware: replace its own ingress token with our proxy path.
             # This turns /api/hassio_ingress/APP_TOKEN/... → {effective_path}/...
             # so the browser re-routes those requests through multiappproxy.
-            sub_filter_types text/html;
             sub_filter_once off;
             sub_filter '{resolved_ingress_path}' '{effective_path}';"""
                     print(f"[DEBUG] Using ingress-token sub_filter for {name}: replace '{resolved_ingress_path}' → '{effective_path}'")
@@ -800,7 +821,6 @@ http {{
                     sub_filter_block = f"""
             # Rewrite absolute paths in HTML responses so they go through the proxy.
             # Covers static assets (src/href), forms (action), and HTMX attributes.
-            sub_filter_types text/html;
             sub_filter_once off;
             sub_filter 'src="/'    'src="{effective_path}/';
             sub_filter 'href="/'   'href="{effective_path}/';
@@ -905,20 +925,25 @@ http {{
             # send every API call to the domain root. Redirecting the entry point
             # ourselves keeps the browser on a URL the app can parse.
             entry_path = app.get('entry_path', '')
-            # Absolute URL, never a bare path: HA ingress rewrites a relative Location
-            # into http://$host:8099/... , which the browser then blocks as mixed
-            # content on an HTTPS dashboard. Same reason proxy_redirect above builds
-            # absolute URLs. $host carries no port, $proxy_redirect_proto is https
-            # behind the ingress and $scheme on direct access.
-            landing = "$proxy_redirect_proto://$host" + (
+            # Protocol-relative, and never a bare path. A bare path comes back from HA
+            # ingress as http://$host:8099/... and gets blocked as mixed content on an
+            # HTTPS dashboard; picking the scheme ourselves depends on
+            # $proxy_redirect_proto being right, which it is not when HA omits
+            # X-Forwarded-Proto. '//host/path' lets the browser reuse the scheme of the
+            # page it is already on — https behind the ingress, http on direct access.
+            landing = "//$host" + (
                 f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
             )
+            # 302, not 301: the entry point comes from a probe replayed at every start,
+            # so it is not permanent. A 301 is cached by browsers indefinitely and
+            # replayed without ever asking the server again — an addon update then has
+            # no effect on the client, whatever the new configuration says.
             if entry_path:
                 print(f"[DEBUG] entry_path for {name}: {path}/ → {landing}")
                 nginx_config += f"""
         # Entry point for {name} (the app cannot be rendered at {path}/ itself)
         location = {path}/ {{
-            return 301 {landing};
+            return 302 {landing};
         }}
 """
 
@@ -927,7 +952,7 @@ http {{
             nginx_config += f"""
         # Trailing-slash redirect for {name}
         location = {path} {{
-            return 301 {landing};
+            return 302 {landing};
         }}
 """
 
@@ -962,10 +987,10 @@ http {{
         }}
 """
 
-        # Absolute for the same reason as the entry-point redirects: a relative
-        # Location comes back from HA ingress as http://$host:8099/... and gets
-        # blocked as mixed content.
-        home_redirect = "$proxy_redirect_proto://$host" + (
+        # Protocol-relative for the same reason as the entry-point redirects: a bare
+        # path comes back from HA ingress as http://$host:8099/... and gets blocked as
+        # mixed content, and hardcoding the scheme depends on X-Forwarded-Proto.
+        home_redirect = "//$host" + (
             ingress_entry.rstrip('/') + '/' if is_ingress else '/'
         )
         nginx_config += f"""

@@ -1,3 +1,15 @@
+## 1.3.2
+
+### Fixed
+- **Entry-point and trailing-slash redirects are 302, not 301.** A 301 is cached by browsers indefinitely and replayed without ever contacting the server again: once a wrong redirect had been served, updating the addon changed nothing for the client. These targets come from a probe replayed at every start — they were never permanent. Browsers still holding a cached 301 must be cleared once (private window, or clear cached files)
+- **Redirects are now protocol-relative** (`//$host/...`). Choosing the scheme ourselves relied on `X-Forwarded-Proto`, which is not always present, and a bare path comes back from HA ingress as `http://$host:8099/...`. `//host/path` lets the browser reuse the scheme of the page it is on — https behind the ingress, http on direct access
+- `sub_filter_types` no longer lists `text/html`, which nginx always filters — it warned `duplicate MIME type "text/html"` on every start
+
+### Changed
+- The `csrf_fix` probe also tries the detected entry point, and treats a `401` baseline turning into `403` as an origin check rather than an auth wall. It stays best-effort: an app whose check is confined to the endpoints its UI calls cannot be seen from the pages we know about (ESPSomfy-RTS answers 200 on `/` whatever the Origin and only rejects on `/bootstrap`), and still needs `csrf_fix` set by hand
+
+---
+
 ## 1.3.1
 
 ### Fixed
