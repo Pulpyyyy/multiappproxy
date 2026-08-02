@@ -871,7 +871,11 @@ http {{
                         "window.EventSource.prototype=E.prototype;}"
                         "var W=window.WebSocket;if(W){"
                         "window.WebSocket=function(u,p){"
-                        'if(typeof u==="string"){var m=u.match(/^wss?:\\/\\/[^\\/]+(\\/.*)$/);'
+                        # No '$' anywhere in this script: nginx reads it as the start of
+                        # a variable inside a sub_filter argument and refuses the whole
+                        # configuration ("invalid variable name"). The regex therefore
+                        # carries no end anchor — it is not needed to capture the path.
+                        'if(typeof u==="string"){var m=u.match(/^wss?:\\/\\/[^\\/]+(\\/.*)/);'
                         'if(m)u=(location.protocol==="https:"?"wss":"ws")+"://"+location.host+f(m[1]);'
                         "else u=f(u);}"
                         "return p?new W(u,p):new W(u);};"

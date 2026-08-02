@@ -1,3 +1,10 @@
+## 1.3.4
+
+### Fixed
+- **The addon could not start with 1.3.3.** The injected runtime patch carried a `$` — the end anchor of its WebSocket regex — and nginx reads `$` inside a `sub_filter` argument as the start of a variable name, not as a literal. The whole configuration was rejected (`invalid variable name`) and the container stopped. The anchor is unnecessary to capture the path and is gone; a check now refuses any `$` in the injected script and any `sub_filter` argument carrying one
+
+---
+
 ## 1.3.3
 
 ### Added
