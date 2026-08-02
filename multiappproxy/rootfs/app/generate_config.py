@@ -110,10 +110,14 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+_PROBE_BODY_MAX = 256 * 1024
+
+
 def _probe_get(url, extra_headers=None):
     """GET url without following redirects.
 
-    Returns (status, headers), or None if the upstream could not be reached.
+    Returns (status, headers, body), or None if the upstream could not be reached.
+    The body is capped: it is only read to look for a sentinel, never kept.
     Never raises: detection is best-effort and must never block startup.
     """
     headers = {'User-Agent': 'multiappproxy/probe', 'Accept': '*/*'}
@@ -129,10 +133,14 @@ def _probe_get(url, extra_headers=None):
     try:
         opener = urllib.request.build_opener(*handlers)
         with opener.open(urllib.request.Request(url, headers=headers), timeout=_PROBE_TIMEOUT) as resp:
-            return resp.status, resp.headers
+            return resp.status, resp.headers, resp.read(_PROBE_BODY_MAX).decode('utf-8', 'replace')
     except urllib.error.HTTPError as exc:
         # 3xx (redirect not followed) and 4xx both carry the headers we want
-        return exc.code, exc.headers
+        try:
+            body = exc.read(_PROBE_BODY_MAX).decode('utf-8', 'replace')
+        except Exception:
+            body = ''
+        return exc.code, exc.headers, body
     except Exception as exc:
         print(f"[AUTO] probe failed for {url}: {exc}")
         return None
@@ -159,7 +167,16 @@ def detect_app_options(name: str, url: str) -> dict:
     if first is None:
         print(f"[AUTO] {name}: upstream unreachable, keeping configured options as-is")
         return detected
-    status, headers = first
+    status, headers, _body = first
+
+    # native_base_path — the app builds its own URLs from a prefix header, so nothing
+    # needs rewriting: BirdNET-Go returns a fully prefixed document and a prefixed
+    # Location once X-Ingress-Path is set. Detected by replaying the request with a
+    # sentinel prefix and looking for it in what comes back.
+    sentinel = '/__multiappproxy_probe__'
+    aware = _probe_get(base, {'X-Ingress-Path': sentinel, 'X-Forwarded-Prefix': sentinel})
+    if aware and (sentinel in (aware[1].get('Location') or '') or sentinel in aware[2]):
+        detected['native_base_path'] = True
 
     # entry_path — the app redirects its root somewhere else (BirdNET-Go: /ui/dashboard).
     # HA ingress can follow that redirect itself, leaving the browser on {path}/ where
@@ -557,7 +574,17 @@ http {{
                 )
                 print(f"[DEBUG] Auto-detected rewrite for {name}: {needs_rewrite}")
 
-            print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite}, preserve_path: {preserve_path})")
+            # native_base_path — the app is told its prefix and builds every URL from it,
+            # so the proxy must stop rewriting entirely: the document, the redirects and
+            # the URLs built at runtime already carry the prefix, and rewriting them
+            # again would double it. This is the clean way to proxy such an app, and it
+            # also lets compression through — nothing has to be filtered any more.
+            native_base_path = app.get('native_base_path', False)
+            if native_base_path and needs_rewrite:
+                needs_rewrite = False
+                print(f"[DEBUG] native_base_path for {name}: rewrite forced off")
+
+            print(f"[DEBUG] Proxy {name}: {path} -> {url} (rewrite: {needs_rewrite}, preserve_path: {preserve_path}, native_base_path: {native_base_path})")
 
             # hide_csp — drop upstream security headers that break embedding.
             # e.g. ESPSomfy-RTS sends "frame-ancestors 'none'" + a connect-src limited
@@ -638,6 +665,41 @@ http {{
             else:
                 effective_path = path
             print(f"[DEBUG] Effective path for sub_filter: {effective_path}")
+
+            if native_base_path:
+                # The nginx variable is used rather than effective_path on purpose: HA
+                # regenerates its ingress token, so a prefix frozen at generation time
+                # would go stale. $http_x_ingress_path follows the live request, and is
+                # empty on direct access, which leaves just {path} — also correct.
+                prefix_header_block = f"""
+            # This app prefixes its own URLs from the header below, so it is forwarded
+            # instead of blanked and nothing is rewritten downstream. X-Forwarded-Prefix
+            # carries the same contract under another name (Grafana, Django, ...).
+            proxy_set_header X-Ingress-Path "$http_x_ingress_path{path}";
+            proxy_set_header X-Forwarded-Prefix "$http_x_ingress_path{path}";
+
+            # Compression can stay: there is nothing left to filter.
+"""
+                # Its Location headers already carry the prefix — only the scheme and
+                # host are missing, without which HA ingress rewrites the bare path into
+                # http://$host:8099/... and the browser blocks it as mixed content.
+                redirect_prefix = ""
+                asset_prefix_header = (
+                    f'proxy_set_header X-Ingress-Path "$http_x_ingress_path{path}";'
+                )
+                print(f"[DEBUG] native_base_path for {name}: forwarding prefix, no rewriting")
+            else:
+                prefix_header_block = """
+            # Do NOT forward X-Ingress-Path to the backend.
+            # Some apps (e.g. Django) use this header to prefix their static URLs,
+            # which causes a double-prefix when sub_filter also rewrites paths.
+            proxy_set_header X-Ingress-Path "";
+
+            # Disable compression so sub_filter can rewrite HTML responses
+            proxy_set_header Accept-Encoding "";
+"""
+                redirect_prefix = effective_path
+                asset_prefix_header = 'proxy_set_header X-Ingress-Path "";'
 
             if preserve_path:
                 # Preserve path mode — no prefix stripping, no sub_filter.
@@ -803,7 +865,12 @@ http {{
                 # We replace that token prefix with multiappproxy's effective_path so the browser
                 # requests flow back through multiappproxy → Django correctly.
                 # For regular apps, we prepend effective_path to all root-relative paths.
-                if resolved_ingress_path:
+                if native_base_path:
+                    # Nothing to rewrite: the app already emits its own prefix, and
+                    # filtering the response again would double it. This is also what
+                    # lets the upstream's compression through untouched.
+                    sub_filter_block = ""
+                elif resolved_ingress_path:
                     sub_filter_block = f"""
             # App is HA-ingress-aware: replace its own ingress token with our proxy path.
             # This turns /api/hassio_ingress/APP_TOKEN/... → {effective_path}/...
@@ -950,16 +1017,9 @@ http {{
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $http_host;
 
-            # Do NOT forward X-Ingress-Path to the backend.
-            # Some apps (e.g. Django) use this header to prefix their static URLs,
-            # which causes a double-prefix when sub_filter also rewrites paths.
-            proxy_set_header X-Ingress-Path "";
-
-            # Disable compression so sub_filter can rewrite HTML responses
-            proxy_set_header Accept-Encoding "";
-
+{prefix_header_block}
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{redirect_prefix}/$1;
 
 {cache_headers_block}
             proxy_read_timeout 86400;
@@ -1008,7 +1068,7 @@ http {{
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Host $http_host;
-            proxy_set_header X-Ingress-Path "";
+            {asset_prefix_header}
 
             # Rewrite upstream redirects so they go through the proxy
             proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;

@@ -30,6 +30,14 @@ configuration:
       ingress follows it itself, the browser stays on the proxy path, and apps
       deriving their prefix from the URL get it wrong. Detected automatically in
       most cases.
+  apps.native_base_path:
+    name: Prefix handled by the application
+    description: >
+      When the application can build its URLs from a prefix header
+      (X-Ingress-Path or X-Forwarded-Prefix), the proxy forwards it and stops
+      rewriting anything: the app prefixes its own HTML, redirects and
+      JavaScript calls. More reliable than rewriting, and compression is
+      preserved. Autodetected.
   # --- Display ---
   apps.description:
     name: Description

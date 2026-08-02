@@ -1,3 +1,14 @@
+## 1.3.6
+
+### Added
+- **`native_base_path`** (autodetected): when an app can build its own URLs from a prefix header, the proxy tells it where it lives — `X-Ingress-Path` and `X-Forwarded-Prefix`, set to `$http_x_ingress_path{path}` so the value follows the live request rather than an ingress token frozen at generation time — and stops rewriting altogether. The app prefixes its own HTML, redirects, API calls and lazily loaded components. Detected by replaying the request with a sentinel prefix and looking for it in the response
+- Measured on BirdNET-Go: 16 prefixed references in the document, a prefixed `Location`, and the bundle back to **291 KB instead of 975 KB** — with nothing to filter, compression can stay
+
+### Changed
+- The addon used to blank `X-Ingress-Path` unconditionally, to stop Django apps double-prefixing their static URLs when `sub_filter` was already rewriting. That reasoning only holds while we rewrite: for an app that handles its own prefix it removed the very information it needed. The header is now forwarded for those apps and blanked for the others, and `sub_filter`, the runtime patch and the redirect prefixing are all disabled in that mode so nothing can double up
+
+---
+
 ## 1.3.5
 
 ### Added

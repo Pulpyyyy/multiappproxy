@@ -159,6 +159,7 @@ apps:
 | `ws_target` | string | No | - | Dedicated WebSocket upstream (e.g. `http://192.168.1.223:8080`). Exposes it at `{path}/ws` through the proxy — for devices serving HTTP and WebSocket on different ports (ESPSomfy-RTS) |
 | `hide_csp` | boolean | No | autodetected | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
 | `entry_path` | string | No | autodetected | Internal path the browser is sent to when the app is opened (e.g. `/ui/dashboard`). For apps that answer their root with a redirect |
+| `native_base_path` | boolean | No | autodetected | Forward the proxy prefix as `X-Ingress-Path` / `X-Forwarded-Prefix` and stop rewriting anything — the app prefixes its own HTML, redirects and JavaScript. More reliable than rewriting, and compression is preserved |
 | `autodetect` | boolean | No | `true` | Probe this upstream at startup. Set `false` to pin the configuration exactly as written |
 | `fast_upstream` | boolean | No | `false` | Enable response buffering and stop forcing `no-store` on the app's own responses. Use when the app is much slower through the proxy than in direct access (embedded devices). Do **not** enable for apps that stream responses (SSE, live logs) unless they send `X-Accel-Buffering: no`. Static assets are always served compressed and cacheable, with or without this option |
 
@@ -174,6 +175,7 @@ and reads the answer:
 | `entry_path` | the app answers its root with a redirect to another path |
 | `hide_csp` | the app returns `frame-ancestors 'none'` or `X-Frame-Options: DENY` |
 | `csrf_fix` | the app returns 403 only once `Host` / `Origin` / `Referer` are foreign |
+| `native_base_path` | a sentinel sent as `X-Ingress-Path` comes back inside the app's own response |
 
 Anything written in the configuration always wins — autodetection only fills the
 gaps, so a decision you disagree with can be pinned by hand. Every decision is
@@ -372,11 +374,13 @@ default `sub_filter`, which fixes the asset paths in the initial HTML.
   category: Domotique
 ```
 
-`entry_path: /ui/dashboard` is detected automatically from the redirect the app
-answers its root with — and it matters: HA ingress follows that redirect itself,
-so without it the browser stays on `/birdnet-go/`, where BirdNET-Go's own base
-path detection finds no `/ui/` segment and sends every API call to the domain
-root.
+BirdNET-Go reads `X-Ingress-Path`, so `native_base_path` is detected and the
+proxy simply tells it where it lives: the app then prefixes its own HTML,
+redirects, API calls and lazily loaded components. Nothing is rewritten, which
+also means its bundle keeps its compression — 291 KB instead of 975 KB.
+
+`entry_path: /ui/dashboard` is detected too, from the redirect the app answers
+its root with, and the portal links straight to it.
 
 Its asset bundle needs no option either: static files always keep their
 compression and cache headers (291 KB gzipped instead of 975 KB, cached rather

@@ -31,6 +31,14 @@ configuration:
       redirection : l'ingress HA la suit lui-même, le navigateur reste sur le
       chemin du proxy, et les apps qui déduisent leur préfixe de l'URL se
       trompent. Détecté automatiquement dans la plupart des cas.
+  apps.native_base_path:
+    name: Préfixe géré par l'application
+    description: >
+      Quand l'application sait construire ses URLs à partir d'un en-tête de
+      préfixe (X-Ingress-Path ou X-Forwarded-Prefix), le proxy le lui transmet
+      et cesse toute réécriture : c'est l'application qui préfixe son HTML, ses
+      redirections et ses appels JavaScript. Plus fiable qu'une réécriture, et
+      la compression est conservée. Détecté automatiquement.
   # --- Affichage ---
   apps.description:
     name: Description

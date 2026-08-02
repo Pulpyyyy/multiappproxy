@@ -29,6 +29,14 @@ configuration:
       redirect: l'ingress di HA lo segue da solo, il browser resta sul percorso
       del proxy e le app che deducono il prefisso dall'URL sbagliano. Rilevato
       automaticamente nella maggior parte dei casi.
+  apps.native_base_path:
+    name: Prefisso gestito dall'applicazione
+    description: >
+      Quando l'applicazione sa costruire i suoi URL da un header di prefisso
+      (X-Ingress-Path o X-Forwarded-Prefix), il proxy glielo inoltra e smette di
+      riscrivere qualsiasi cosa: è l'app a prefissare il proprio HTML, i
+      redirect e le chiamate JavaScript. Più affidabile della riscrittura, e la
+      compressione viene preservata. Rilevato automaticamente.
   apps.description:
     name: Descrizione
     description: Breve descrizione visualizzata sulla scheda.

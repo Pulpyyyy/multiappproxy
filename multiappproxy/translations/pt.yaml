@@ -29,6 +29,14 @@ configuration:
       do HA segue-o sozinho, o navegador fica no caminho do proxy, e as apps que
       deduzem o prefixo a partir do URL erram. Detetado automaticamente na
       maioria dos casos.
+  apps.native_base_path:
+    name: Prefixo gerido pela aplicação
+    description: >
+      Quando a aplicação sabe construir os seus URLs a partir de um cabeçalho de
+      prefixo (X-Ingress-Path ou X-Forwarded-Prefix), o proxy reenvia-lho e
+      deixa de reescrever seja o que for: é a app que prefixa o seu HTML, os
+      redirecionamentos e as chamadas JavaScript. Mais fiável do que reescrever,
+      e a compressão é preservada. Detetado automaticamente.
   apps.description:
     name: Descrição
     description: Breve descrição exibida no cartão.

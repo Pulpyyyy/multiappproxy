@@ -29,6 +29,14 @@ configuration:
       beantworten: HA-Ingress folgt ihr selbst, der Browser bleibt auf dem
       Proxy-Pfad, und Apps, die ihr Präfix aus der URL ableiten, liegen falsch.
       Wird meist automatisch erkannt.
+  apps.native_base_path:
+    name: Präfix von der Anwendung verwaltet
+    description: >
+      Wenn die Anwendung ihre URLs aus einem Präfix-Header aufbauen kann
+      (X-Ingress-Path oder X-Forwarded-Prefix), leitet der Proxy ihn weiter und
+      schreibt nichts mehr um: die App präfigiert ihr HTML, ihre Weiterleitungen
+      und ihre JavaScript-Aufrufe selbst. Zuverlässiger als Umschreiben, und die
+      Komprimierung bleibt erhalten. Wird automatisch erkannt.
   apps.description:
     name: Beschreibung
     description: Kurze Beschreibung auf der Karte angezeigt.

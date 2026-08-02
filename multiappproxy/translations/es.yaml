@@ -29,6 +29,14 @@ configuration:
       HA la sigue por su cuenta, el navegador se queda en la ruta del proxy, y
       las apps que deducen su prefijo de la URL se equivocan. Se detecta
       automáticamente en la mayoría de casos.
+  apps.native_base_path:
+    name: Prefijo gestionado por la aplicación
+    description: >
+      Cuando la aplicación sabe construir sus URLs a partir de una cabecera de
+      prefijo (X-Ingress-Path o X-Forwarded-Prefix), el proxy se la reenvía y
+      deja de reescribir nada: es la app la que prefija su HTML, sus
+      redirecciones y sus llamadas JavaScript. Más fiable que reescribir, y se
+      conserva la compresión. Se detecta automáticamente.
   apps.description:
     name: Descripción
     description: Breve descripción mostrada en la tarjeta.
