@@ -1,3 +1,12 @@
+## 1.3.3
+
+### Added
+- **Runtime URL patch**, injected right after `<head>` so it is in place before any of the app's own scripts run. `sub_filter` only reaches markup: URLs an app builds in JavaScript are invisible to it, and compressed JS bundles cannot be filtered at all. The patch closes that gap where the URL is actually used, prefixing root-absolute ones on `fetch`, `XMLHttpRequest.open`, `EventSource` and `WebSocket`. It is idempotent — a URL already under the proxy path is returned untouched — so an app that resolves its own base path correctly is unaffected, which is why it needs no option
+- **`history.pushState` / `replaceState` are patched too**, and that is the one that mattered: a router rewriting the address bar without the prefix makes every app that derives its base path from the URL compute an empty one, after which every call, asset and stream targets the domain root with no way back
+- **Stylesheets are rewritten**: `url(...)` references are absolute in most bundlers' output and no amount of markup rewriting reaches them. `text/css` joins `sub_filter_types`, and CSS now goes through the main location rather than the compressed asset one — small next to a JS bundle, so serving it uncompressed costs little
+
+---
+
 ## 1.3.2
 
 ### Fixed

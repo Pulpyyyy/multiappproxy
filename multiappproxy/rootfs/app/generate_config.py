@@ -837,9 +837,61 @@ http {{
                     else:
                         ws_inject = ""
 
+                    # Runtime URL patch, injected right after <head> so it is in place
+                    # before any of the app's own scripts run.
+                    #
+                    # sub_filter can only reach markup: URLs an app builds in JavaScript
+                    # are invisible to it, and its compressed JS bundles cannot be
+                    # filtered at all. This patch closes that gap at the moment a URL is
+                    # used, by prefixing root-absolute ones with the proxy path.
+                    #
+                    # It is idempotent — a URL already under the prefix is returned
+                    # untouched — so an app that resolves its own base path correctly is
+                    # unaffected, which is why it needs no option.
+                    #
+                    # history.pushState/replaceState matter as much as the network calls:
+                    # a router that rewrites the address bar without the prefix makes
+                    # every app that derives its base path from the URL compute an empty
+                    # one, and nothing recovers from that.
+                    patch = (
+                        "(function(){"
+                        f'var P="{effective_path}";if(!P)return;'
+                        "function f(u){"
+                        'if(typeof u!=="string"||u.charAt(0)!=="/"||u.charAt(1)==="/")return u;'
+                        'return(u===P||u.indexOf(P+"/")===0)?u:P+u;}'
+                        "var F=window.fetch;if(F)window.fetch=function(i,o){"
+                        'if(typeof i==="string")i=f(i);'
+                        "else if(i&&i.url)i=new Request(f(i.url),i);"
+                        "return F.call(this,i,o);};"
+                        "var X=XMLHttpRequest.prototype.open;"
+                        "XMLHttpRequest.prototype.open=function(){"
+                        "arguments[1]=f(arguments[1]);return X.apply(this,arguments);};"
+                        "var E=window.EventSource;if(E){"
+                        "window.EventSource=function(u,c){return new E(f(u),c);};"
+                        "window.EventSource.prototype=E.prototype;}"
+                        "var W=window.WebSocket;if(W){"
+                        "window.WebSocket=function(u,p){"
+                        'if(typeof u==="string"){var m=u.match(/^wss?:\\/\\/[^\\/]+(\\/.*)$/);'
+                        'if(m)u=(location.protocol==="https:"?"wss":"ws")+"://"+location.host+f(m[1]);'
+                        "else u=f(u);}"
+                        "return p?new W(u,p):new W(u);};"
+                        "window.WebSocket.prototype=W.prototype;}"
+                        '["pushState","replaceState"].forEach(function(n){'
+                        "var o=history[n];history[n]=function(s,t,u){"
+                        "return o.call(this,s,t,u==null?u:f(String(u)));};});"
+                        "}());"
+                    )
+                    patch_inject = (
+                        f"\n            sub_filter '<head>' '<head><script>{patch}</script>';"
+                    )
+                    print(f"[DEBUG] Runtime URL patch injected for {name} (prefix {effective_path})")
+
                     sub_filter_block = f"""
-            # Rewrite absolute paths in HTML responses so they go through the proxy.
-            # Covers static assets (src/href), forms (action), and HTMX attributes.
+            # Rewrite absolute paths in responses so they go through the proxy.
+            # Markup: static assets (src/href), forms (action), HTMX attributes.
+            # Stylesheets: url(...) references, which no amount of markup rewriting
+            # would reach — that is where BirdNET-Go's fonts were being lost.
+            sub_filter_types text/css;
             sub_filter_once off;
             sub_filter 'src="/'    'src="{effective_path}/';
             sub_filter 'href="/'   'href="{effective_path}/';
@@ -848,7 +900,10 @@ http {{
             sub_filter 'hx-post="/'   'hx-post="{effective_path}/';
             sub_filter 'hx-put="/'    'hx-put="{effective_path}/';
             sub_filter 'hx-delete="/' 'hx-delete="{effective_path}/';
-            sub_filter 'hx-patch="/'  'hx-patch="{effective_path}/';{ws_inject}"""
+            sub_filter 'hx-patch="/'  'hx-patch="{effective_path}/';
+            sub_filter 'url(/'     'url({effective_path}/';
+            sub_filter "url('/"    "url('{effective_path}/";
+            sub_filter 'url("/'    'url("{effective_path}/';{patch_inject}{ws_inject}"""
 
                 nginx_config += f"""
         # Proxy for {name}
@@ -904,8 +959,11 @@ http {{
                 # over the prefix location above regardless of declaration order.
                 # No option gates this: it only ever matches requests with a file
                 # extension, so it cannot affect HTML, API calls, SSE or WebSockets.
+                # css is deliberately absent: stylesheets go through the main location
+                # so sub_filter can rewrite their url(...) references. They are small
+                # next to a JS bundle, so serving them uncompressed costs little.
                 asset_exts = (
-                    'js|mjs|css|map|woff2?|ttf|otf|eot|'
+                    'js|mjs|map|woff2?|ttf|otf|eot|'
                     'png|jpe?g|gif|svg|webp|avif|ico|webmanifest|mp3|wav|ogg'
                 )
                 nginx_config += f"""
