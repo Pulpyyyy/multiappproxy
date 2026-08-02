@@ -28,6 +28,9 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          # The image namespace is the one builder.yaml publishes to, not the
+          # account the token belongs to — they need not be the same string.
+          NAMESPACE: pulpyyyy
           PATTERN: ${{ inputs.pattern }}
           KEEP: ${{ inputs.keep }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -55,7 +58,7 @@ jobs:
             tags=""
             while :; do
               body=$(curl -sS -H "Authorization: Bearer $JWT" \
-                "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/$repo/tags?page_size=100&page=$page")
+                "https://hub.docker.com/v2/repositories/$NAMESPACE/$repo/tags?page_size=100&page=$page")
               names=$(echo "$body" | jq -r '.results[]?.name')
               [ -z "$names" ] && break
               tags="$tags$names"$'\n'
@@ -63,6 +66,7 @@ jobs:
               page=$((page + 1))
             done
 
+            echo "  $(echo "$tags" | grep -c . ) tag(s) listed"
             for tag in $tags; do
               if ! echo "$tag" | grep -qE "$PATTERN"; then continue; fi
               if echo ",$KEEP_LIST," | grep -q ",$tag,"; then
@@ -76,7 +80,7 @@ jobs:
               fi
               code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
                 -H "Authorization: Bearer $JWT" \
-                "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/$repo/tags/$tag/")
+                "https://hub.docker.com/v2/repositories/$NAMESPACE/$repo/tags/$tag/")
               if [ "$code" = "204" ] || [ "$code" = "202" ]; then
                 echo "  deleted $tag"
                 deleted=$((deleted + 1))
