@@ -2,6 +2,11 @@ configuration:
   debug:
     name: Debug mode
     description: Display real-time logs on the interface.
+  autodetect:
+    name: Autodetection
+    description: >
+      Default autodetection setting for every application. Can be overridden per
+      application.
   apps:
     name: Applications
     description: List of applications to proxy.
@@ -14,7 +19,17 @@ configuration:
     description: Backend application URL (http:// or https://).
   apps.path:
     name: Path
-    description: Access path in the proxy (e.g., /myapp).
+    description: >
+      Deprecated and ignored: the path is derived from the application name.
+      Kept only so older configurations still start.
+  apps.entry_path:
+    name: Entry point
+    description: >
+      Internal path to send the browser to when the app is opened (e.g.
+      /ui/dashboard). Useful for apps that answer their root with a redirect: HA
+      ingress follows it itself, the browser stays on the proxy path, and apps
+      deriving their prefix from the URL get it wrong. Detected automatically in
+      most cases.
   # --- Display ---
   apps.description:
     name: Description
@@ -90,6 +105,12 @@ configuration:
       audio) from a dedicated location that keeps their compression. Do not
       enable for apps that stream responses progressively (SSE, live logs),
       unless they send the X-Accel-Buffering: no header, which nginx honours.
+  apps.autodetect:
+    name: Autodetection
+    description: >
+      Probe the application at startup to infer the observable options (entry
+      point, CSP headers, origin checking). Anything set in the configuration
+      keeps precedence. Disable to pin the behaviour entirely.
   apps.ssl_verify:
     name: SSL verification
     description: >

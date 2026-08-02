@@ -93,7 +93,6 @@ apps:
     description: Z-Wave management interface
     icon: ⚡
     logo: https://example.com/zwave-logo.png
-    path: /zwavejsui
     rewrite: false
     category: Protocols
     
@@ -101,7 +100,6 @@ apps:
     url: https://zigbee2mqtt.example.com:8080
     description: Zigbee to MQTT gateway
     icon: 🐝
-    path: /z2m
     token: SuperSecretToken?
     rewrite: false
     category: Protocols
@@ -111,14 +109,12 @@ apps:
     description: Matter gateway
     icon: 🌉
     logo: https://raw.githubusercontent.com/t0bst4r/matterbridge/main/frontend/public/matterbridge%2064x64.png
-    path: /matter
     category: Protocols
 
   - name: Portainer
     url: http://portainer:9000
     description: Docker management (admin only)
     icon: 🐳
-    path: /portainer
     category: Tools
     admin: true        # Hidden from non-admin users
 
@@ -126,7 +122,6 @@ apps:
     url: http://192.168.1.200:5000
     description: Password-protected application
     icon: 🔒
-    path: /private
     secret: MySecretPassword  # bcrypt-hashed at startup, never sent to the client
 ```
 
@@ -139,6 +134,7 @@ apps:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `debug` | boolean | `false` | Enable real-time logs on interface and `error_log debug` in Nginx |
+| `autodetect` | boolean | `true` | Probe every upstream at startup to infer the options that can be read off the wire. Overridable per app |
 
 ### Per-Application Parameters
 
@@ -146,7 +142,7 @@ apps:
 |-----------|------|----------|---------|-------------|
 | `name` | string | ✅ Yes | - | Display name on card |
 | `url` | string | ✅ Yes | - | Backend application URL (http/https) |
-| `path` | string | No | `/app-name` | Access path in proxy |
+| `path` | string | — | derived from `name` | **Deprecated and ignored.** The proxy path is slugified from the app name (`BirdNET-Go` → `/birdnet-go`) and made unique automatically. Still accepted by the schema so older configurations start, but the configured value is not used |
 | `description` | string | No | `""` | Description shown under name |
 | `icon` | string | No | 📱 | Emoji to display (UTF-8) |
 | `logo` | string | No | - | Image URL (takes priority over icon) |
@@ -157,12 +153,40 @@ apps:
 | `hassio_ingress_slug` | string | No | - | Slug of another HA addon; the proxy resolves its ingress URL via the Supervisor API and rewrites matching paths in HTML responses so they flow back through multiappproxy |
 | `secret` | string | No | - | Password required to open the app (bcrypt-hashed at startup, never sent to the client) |
 | `admin` | boolean | No | `false` | Hide this app from non-admin users (owner or system-admin group) |
-| `csrf_fix` | boolean | No | `false` | Override `Origin`, `Referer` and `Host` headers with the upstream URL. Required for apps that validate the request origin: Django apps (e.g. NSPanel Manager) or embedded firmwares (e.g. ESPSomfy-RTS) |
+| `csrf_fix` | boolean | No | autodetected | Override `Origin`, `Referer` and `Host` headers with the upstream URL. Required for apps that validate the request origin: Django apps (e.g. NSPanel Manager) or embedded firmwares (e.g. ESPSomfy-RTS) |
 | `ws_rewrite` | boolean | No | `false` | Inject a JavaScript patch at runtime that rewrites WebSocket URLs so they go through the proxy. Use when the upstream constructs WebSocket URLs server-side with an absolute host/path |
 | `ssl_verify` | boolean | No | `false` | Verify the upstream SSL certificate against the system CA bundle (https upstreams only) |
 | `ws_target` | string | No | - | Dedicated WebSocket upstream (e.g. `http://192.168.1.223:8080`). Exposes it at `{path}/ws` through the proxy — for devices serving HTTP and WebSocket on different ports (ESPSomfy-RTS) |
-| `hide_csp` | boolean | No | `false` | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
-| `fast_upstream` | boolean | No | `false` | Stop the proxy from pessimizing the backend: enable response buffering, stop forcing `no-store`, and serve static assets from a dedicated location that keeps upstream compression. Use when the app is much slower through the proxy than in direct access (embedded devices, SPA backends with a large bundle). Do **not** enable for apps that stream responses (SSE, live logs) unless they send `X-Accel-Buffering: no` |
+| `hide_csp` | boolean | No | autodetected | Strip upstream `Content-Security-Policy` / `X-Frame-Options` headers. Required when the app forbids iframes (`frame-ancestors 'none'`) and must render inside HA ingress |
+| `entry_path` | string | No | autodetected | Internal path the browser is sent to when the app is opened (e.g. `/ui/dashboard`). For apps that answer their root with a redirect |
+| `autodetect` | boolean | No | `true` | Probe this upstream at startup. Set `false` to pin the configuration exactly as written |
+| `fast_upstream` | boolean | No | `false` | Enable response buffering and stop forcing `no-store` on the app's own responses. Use when the app is much slower through the proxy than in direct access (embedded devices). Do **not** enable for apps that stream responses (SSE, live logs) unless they send `X-Accel-Buffering: no`. Static assets are always served compressed and cacheable, with or without this option |
+
+### Autodetection
+
+Most apps need nothing but a `name` and a `url`. At startup, before nginx is
+launched, the proxy sends a couple of harmless `GET` requests to each upstream
+and reads the answer:
+
+| Inferred | Signal |
+|----------|--------|
+| `path` | slugified from `name`, made unique — no probe involved, and no longer configurable |
+| `entry_path` | the app answers its root with a redirect to another path |
+| `hide_csp` | the app returns `frame-ancestors 'none'` or `X-Frame-Options: DENY` |
+| `csrf_fix` | the app returns 403 only once `Host` / `Origin` / `Referer` are foreign |
+
+Anything written in the configuration always wins — autodetection only fills the
+gaps, so a decision you disagree with can be pinned by hand. Every decision is
+printed in the addon log (`[AUTO] …`).
+
+The remaining options cannot be read off an HTTP response and stay manual:
+`ws_target` (a different port), `preserve_path`, `rewrite`, `ssl_verify`,
+`hassio_ingress_slug` and `fast_upstream`. Guessing them would be unreliable, and
+a wrong guess costs more than an option set once.
+
+If an upstream is powered off at startup, its probe times out after 3 s, a
+warning is logged and its configured options are used unchanged — detection
+never blocks the addon from starting. Restarting the addon re-runs it.
 
 ### Categories and Icons
 
@@ -199,7 +223,6 @@ Protect any app with a password using the `secret` field:
 ```yaml
 - name: Private App
   url: http://192.168.1.200:5000
-  path: /private
   secret: MyPassword123
 ```
 
@@ -218,7 +241,6 @@ Restrict an app's visibility to Home Assistant admin users:
 ```yaml
 - name: Admin Tool
   url: http://192.168.1.50:8080
-  path: /admin-tool
   admin: true
 ```
 
@@ -259,7 +281,6 @@ Generates: `http://backend/?token=MySecretToken123`
 - name: Z-Wave JS UI
   url: https://zwavejs.yourdomain.com:8091
   icon: ⚡
-  path: /zwavejsui
   category: Protocols
 ```
 
@@ -273,7 +294,6 @@ Generates: `http://backend/?token=MySecretToken123`
 - name: Zigbee2MQTT
   url: http://zigbee2mqtt.local:8080
   icon: 🐝
-  path: /z2m
   token: YourToken
   category: Protocols
 ```
@@ -295,7 +315,6 @@ frontend:
 - name: Matter Bridge
   url: http://matter-bridge.local:8283
   icon: 🌉
-  path: /matter
   category: Protocols
 ```
 
@@ -310,15 +329,17 @@ combination handles all of that:
 ```yaml
 - name: ESPSomfy RTS
   url: http://192.168.1.223
-  path: /espsomfy
   icon: 🪟
   description: "Contrôle des volets Somfy RTS via ESP32"
   category: Domotique
-  csrf_fix: true                          # Host/Origin/Referer → IP of the ESP
-  hide_csp: true                          # allow rendering in the HA ingress iframe
-  ws_target: http://192.168.1.223:8080    # WebSocket tunnelled at /espsomfy/ws
-  fast_upstream: true                     # buffering on + browser caching allowed
+  ws_target: http://192.168.1.223:8080    # WebSocket tunnelled at /espsomfy-rts/ws
+  fast_upstream: true                     # buffering on, for the ESP32's few sockets
 ```
+
+`csrf_fix` and `hide_csp` are detected automatically: the firmware answers 403
+once `Host`/`Origin`/`Referer` are foreign, and sends `frame-ancestors 'none'`.
+`ws_target` has to be given — nothing in an HTTP response reveals that the
+WebSocket lives on another port.
 
 `fast_upstream` matters a lot here. Without it the proxy keeps response
 buffering off and stamps `Cache-Control: no-store` on every response, which on
@@ -346,24 +367,23 @@ default `sub_filter`, which fixes the asset paths in the initial HTML.
 ```yaml
 - name: BirdNET-Go
   url: http://192.168.1.119:8080
-  path: /birdnet
   icon: 🐦
   description: "Identification des oiseaux au son"
   category: Domotique
-  fast_upstream: true                     # SPA bundle: compression + caching
 ```
 
-`fast_upstream` matters here for the asset bundle, not for sockets: without it
-the main JS bundle is served uncompressed (975 KB instead of 291 KB) and its
-`Cache-Control: public, max-age=31536000, immutable` is overwritten with
-`no-store`, so the browser refetches the whole SPA on every load. Its SSE
-endpoints (`/api/v2/notifications/stream`, `/api/v2/detections/stream`,
-`/api/v2/streams/audio-level`) send `X-Accel-Buffering: no`, which nginx
-honours, so response buffering does not delay them.
+`entry_path: /ui/dashboard` is detected automatically from the redirect the app
+answers its root with — and it matters: HA ingress follows that redirect itself,
+so without it the browser stays on `/birdnet-go/`, where BirdNET-Go's own base
+path detection finds no `/ui/` segment and sends every API call to the domain
+root.
 
-No `hide_csp` is needed: BirdNET-Go sends `frame-ancestors 'self'` and
-`X-Frame-Options: SAMEORIGIN`, and since the proxied document is served from
-the Home Assistant origin, both are satisfied inside the ingress iframe.
+Its asset bundle needs no option either: static files always keep their
+compression and cache headers (291 KB gzipped instead of 975 KB, cached rather
+than refetched on every load). `hide_csp` is correctly *not* detected —
+BirdNET-Go sends `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`,
+both satisfied inside the ingress iframe since the proxied document is served
+from the Home Assistant origin.
 
 ### ⚙️ Other Applications
 

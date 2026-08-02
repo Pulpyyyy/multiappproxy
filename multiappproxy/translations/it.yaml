@@ -2,6 +2,11 @@ configuration:
   debug:
     name: Modalità debug
     description: Visualizza i log in tempo reale sull'interfaccia.
+  autodetect:
+    name: Rilevamento automatico
+    description: >
+      Valore predefinito del rilevamento automatico per tutte le applicazioni.
+      Sovrascrivibile per singola applicazione.
   apps:
     name: Applicazioni
     description: Elenco delle applicazioni da proxy.
@@ -13,7 +18,17 @@ configuration:
     description: URL backend dell'applicazione (http:// o https://).
   apps.path:
     name: Percorso
-    description: Percorso di accesso nel proxy (es. /myapp).
+    description: >
+      Obsoleto e ignorato: il percorso è derivato dal nome dell'applicazione.
+      Mantenuto solo perché le vecchie configurazioni continuino ad avviarsi.
+  apps.entry_path:
+    name: Punto di ingresso
+    description: >
+      Percorso interno a cui inviare il browser all'apertura (es.
+      /ui/dashboard). Utile per le app che rispondono alla propria radice con un
+      redirect: l'ingress di HA lo segue da solo, il browser resta sul percorso
+      del proxy e le app che deducono il prefisso dall'URL sbagliano. Rilevato
+      automaticamente nella maggior parte dei casi.
   apps.description:
     name: Descrizione
     description: Breve descrizione visualizzata sulla scheda.
@@ -79,6 +94,13 @@ configuration:
       conserva la compressione. Non attivare per app che trasmettono risposte in
       streaming (SSE, log in tempo reale), a meno che non inviino l'header
       X-Accel-Buffering: no, che nginx rispetta.
+  apps.autodetect:
+    name: Rilevamento automatico
+    description: >
+      Sonda l'applicazione all'avvio per dedurre le opzioni osservabili (punto
+      di ingresso, header CSP, controllo dell'origine). Quanto indicato nella
+      configurazione ha sempre la precedenza. Disattiva per fissare
+      completamente il comportamento.
   apps.ssl_verify:
     name: Verifica SSL
     description: >

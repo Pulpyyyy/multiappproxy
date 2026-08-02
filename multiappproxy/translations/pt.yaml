@@ -2,6 +2,11 @@ configuration:
   debug:
     name: Modo de depuração
     description: Exibir logs em tempo real na interface.
+  autodetect:
+    name: Deteção automática
+    description: >
+      Valor por omissão da deteção automática para todas as aplicações. Pode ser
+      substituído por aplicação.
   apps:
     name: Aplicações
     description: Lista de aplicações para proxy.
@@ -13,7 +18,17 @@ configuration:
     description: URL backend da aplicação (http:// ou https://).
   apps.path:
     name: Caminho
-    description: Caminho de acesso no proxy (ex. /myapp).
+    description: >
+      Obsoleto e ignorado: o caminho é derivado do nome da aplicação. Mantido
+      apenas para que as configurações antigas ainda arranquem.
+  apps.entry_path:
+    name: Ponto de entrada
+    description: >
+      Caminho interno para onde enviar o navegador ao abrir (ex. /ui/dashboard).
+      Útil para apps que respondem à sua raiz com um redirecionamento: o ingress
+      do HA segue-o sozinho, o navegador fica no caminho do proxy, e as apps que
+      deduzem o prefixo a partir do URL erram. Detetado automaticamente na
+      maioria dos casos.
   apps.description:
     name: Descrição
     description: Breve descrição exibida no cartão.
@@ -78,6 +93,13 @@ configuration:
       location dedicada que preserva a sua compressão. Não ative em apps que
       enviam respostas em streaming (SSE, logs em direto), salvo se enviarem o
       cabeçalho X-Accel-Buffering: no, que o nginx respeita.
+  apps.autodetect:
+    name: Deteção automática
+    description: >
+      Sonda a aplicação no arranque para deduzir as opções observáveis (ponto de
+      entrada, cabeçalhos CSP, verificação de origem). O que estiver na
+      configuração tem sempre prioridade. Desative para fixar totalmente o
+      comportamento.
   apps.ssl_verify:
     name: Verificação SSL
     description: >

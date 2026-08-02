@@ -2,6 +2,11 @@ configuration:
   debug:
     name: Debug-Modus
     description: Echtzeit-Protokolle auf der Oberfläche anzeigen.
+  autodetect:
+    name: Automatische Erkennung
+    description: >
+      Standardwert der automatischen Erkennung für alle Anwendungen. Pro
+      Anwendung überschreibbar.
   apps:
     name: Anwendungen
     description: Liste der zu proxierenden Anwendungen.
@@ -13,7 +18,17 @@ configuration:
     description: Backend-URL der Anwendung (http:// oder https://).
   apps.path:
     name: Pfad
-    description: Zugriffspfad im Proxy (z.B. /myapp).
+    description: >
+      Veraltet und ignoriert: der Pfad wird aus dem Anwendungsnamen abgeleitet.
+      Nur beibehalten, damit ältere Konfigurationen noch starten.
+  apps.entry_path:
+    name: Einstiegspunkt
+    description: >
+      Interner Pfad, auf den der Browser beim Öffnen geschickt wird (z.B.
+      /ui/dashboard). Nützlich für Apps, die ihre Wurzel mit einer Weiterleitung
+      beantworten: HA-Ingress folgt ihr selbst, der Browser bleibt auf dem
+      Proxy-Pfad, und Apps, die ihr Präfix aus der URL ableiten, liegen falsch.
+      Wird meist automatisch erkannt.
   apps.description:
     name: Beschreibung
     description: Kurze Beschreibung auf der Karte angezeigt.
@@ -78,6 +93,13 @@ configuration:
       die ihre Komprimierung erhält. Nicht aktivieren für Apps, die Antworten
       fortlaufend streamen (SSE, Live-Logs) — außer sie senden den Header
       X-Accel-Buffering: no, den nginx berücksichtigt.
+  apps.autodetect:
+    name: Automatische Erkennung
+    description: >
+      Prüft die Anwendung beim Start, um die beobachtbaren Optionen abzuleiten
+      (Einstiegspunkt, CSP-Header, Origin-Prüfung). Was in der Konfiguration
+      steht, hat immer Vorrang. Deaktivieren, um das Verhalten vollständig
+      festzulegen.
   apps.ssl_verify:
     name: SSL-Prüfung
     description: >

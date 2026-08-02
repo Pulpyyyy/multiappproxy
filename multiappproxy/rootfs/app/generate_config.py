@@ -4,11 +4,14 @@ import yaml
 import json
 import os
 import re
+import ssl
 import sys
+import unicodedata
 import bcrypt
 from urllib.parse import quote, urlparse
 try:
     import urllib.request
+    import urllib.error
 except ImportError:
     pass
 
@@ -43,6 +46,159 @@ def get_ha_ingress_url(addon_slug):
         return None
 
 _PATH_RE = re.compile(r'^/[a-zA-Z0-9_-]+$')
+# entry_path may span several segments and carry a query (e.g. /ui/dashboard?tab=1).
+# It is interpolated into an nginx `return 301`, so ';', quotes and whitespace —
+# anything that could terminate the directive or inject another one — are excluded.
+_ENTRY_RE = re.compile(r'^(?:/[a-zA-Z0-9._~%-]+)+/?(?:\?[a-zA-Z0-9._~%&=+-]*)?$')
+
+# Proxy paths that would shadow the portal's own locations
+_RESERVED_PATHS = {'/api', '/static', '/apps.json'}
+
+
+def slugify(name: str) -> str:
+    """Turn an app name into a path slug accepted by _PATH_RE.
+
+    Accents are folded rather than dropped so 'Caméra Jardin' gives 'camera-jardin'
+    instead of 'cam-ra-jardin'.
+    """
+    folded = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    return re.sub(r'[^a-zA-Z0-9]+', '-', folded).strip('-').lower() or 'app'
+
+
+def assign_paths(apps: list) -> None:
+    """Derive every app's proxy path from its name. Not configurable.
+
+    The slug is deterministic — the same name always yields the same path, so URLs
+    are stable across restarts. Collisions (two apps named alike, or a slug matching
+    a portal route) get a numeric suffix, assigned by declaration order.
+
+    A `path` left over from an older configuration is accepted by the schema so the
+    addon still starts, but it is ignored and reported.
+    """
+    used = set(_RESERVED_PATHS)
+
+    for app in apps:
+        name = app.get('name', '?')
+        configured = app.get('path')
+        base = f"/{slugify(name)}"
+        path, suffix = base, 2
+        while path in used:
+            path = f"{base}-{suffix}"
+            suffix += 1
+        used.add(path)
+        app['path'] = path
+        if configured and configured != path:
+            print(f"[AUTO] {name}: path is derived from the name now — "
+                  f"configured '{configured}' ignored, using {path}")
+        else:
+            print(f"[AUTO] {name}: path = {path}")
+
+
+# LAN devices answer in milliseconds; this only has to bound the wait for one that
+# is powered off, since every app is probed before nginx starts.
+_PROBE_TIMEOUT = 3
+# Deliberately not a real host: the csrf probe needs a Host/Origin the upstream
+# cannot recognise, exactly like the one a browser sends through HA ingress.
+_PROBE_HOST = 'multiappproxy-probe.invalid'
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface 3xx responses instead of following them — the Location header is
+    what tells us where the app really wants the browser to land."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _probe_get(url, extra_headers=None):
+    """GET url without following redirects.
+
+    Returns (status, headers), or None if the upstream could not be reached.
+    Never raises: detection is best-effort and must never block startup.
+    """
+    headers = {'User-Agent': 'multiappproxy/probe', 'Accept': '*/*'}
+    if extra_headers:
+        headers.update(extra_headers)
+
+    handlers = [_NoRedirect]
+    if url.startswith('https'):
+        # Same posture as the generated config: ssl_verify defaults to off so a
+        # self-signed LAN certificate does not defeat detection.
+        handlers.append(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+
+    try:
+        opener = urllib.request.build_opener(*handlers)
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=_PROBE_TIMEOUT) as resp:
+            return resp.status, resp.headers
+    except urllib.error.HTTPError as exc:
+        # 3xx (redirect not followed) and 4xx both carry the headers we want
+        return exc.code, exc.headers
+    except Exception as exc:
+        print(f"[AUTO] probe failed for {url}: {exc}")
+        return None
+
+
+def detect_app_options(name: str, url: str) -> dict:
+    """Infer the proxy options that are directly observable from the upstream.
+
+    Only three of them can be read off the wire with certainty, so only those are
+    detected — guessing the rest (ws_target, preserve_path, rewrite) from an HTTP
+    response would be unreliable, and a wrong guess is worse than an option the
+    user has to set once:
+
+      entry_path  the Location of the redirect the app answers its root with
+      hide_csp    a CSP/X-Frame-Options that forbids embedding outright
+      csrf_fix    a 403 that appears only once Host/Origin/Referer are foreign
+
+    Returns a dict of inferred options, possibly empty.
+    """
+    base = url.rstrip('/') + '/'
+    detected = {}
+
+    first = _probe_get(base)
+    if first is None:
+        print(f"[AUTO] {name}: upstream unreachable, keeping configured options as-is")
+        return detected
+    status, headers = first
+
+    # entry_path — the app redirects its root somewhere else (BirdNET-Go: /ui/dashboard).
+    # HA ingress can follow that redirect itself, leaving the browser on {path}/ where
+    # apps that derive their base path from the URL compute the wrong prefix.
+    if 300 <= status < 400:
+        location = headers.get('Location', '') or ''
+        parsed_loc = urlparse(location)
+        upstream_host = urlparse(base).netloc
+        same_host = not parsed_loc.netloc or parsed_loc.netloc == upstream_host
+        # Keep the query: it is part of where the app wants the browser to land
+        target = parsed_loc.path + (f"?{parsed_loc.query}" if parsed_loc.query else '')
+        if same_host and target and target != '/' and _ENTRY_RE.match(target):
+            detected['entry_path'] = target
+
+    # hide_csp — only when the app forbids embedding outright. 'self' and SAMEORIGIN
+    # are satisfied inside the HA ingress iframe (the proxied document is served from
+    # the HA origin), so stripping them would weaken the app for nothing.
+    csp = headers.get('Content-Security-Policy', '') or ''
+    xfo = (headers.get('X-Frame-Options', '') or '').strip().upper()
+    frame_ancestors = re.search(r'frame-ancestors([^;]*)', csp, re.IGNORECASE)
+    if (frame_ancestors and "'none'" in frame_ancestors.group(1).lower()) or xfo == 'DENY':
+        detected['hide_csp'] = True
+
+    # csrf_fix — replay the same request with the foreign Origin/Referer a browser sends
+    # through the ingress. A 403 that appears only in the second probe means the app
+    # validates the request origin.
+    # The Host header is deliberately left correct: upstreams reached through a
+    # host-routing reverse proxy answer 403/404 to an unknown Host, which would look
+    # like an origin check that isn't there. Apps that compare Referer against Host
+    # (embedded firmwares) still fail this probe, since only the Referer is foreign.
+    second = _probe_get(base, {
+        'Origin': f'https://{_PROBE_HOST}',
+        'Referer': f'https://{_PROBE_HOST}/',
+    })
+    if second is not None and second[0] in (401, 403) and status not in (401, 403):
+        detected['csrf_fix'] = True
+
+    return detected
+
 
 def validate_apps(apps: list) -> None:
     """Fail fast with a clear message if any app has an invalid url or path."""
@@ -67,6 +223,14 @@ def validate_apps(apps: list) -> None:
             raise ValueError(
                 f"App '{name}': path '{path}' invalide — "
                 f"format attendu: /slug (lettres, chiffres, - et _ uniquement)"
+            )
+
+        entry_path = app.get('entry_path', '')
+        if entry_path and not _ENTRY_RE.match(entry_path):
+            raise ValueError(
+                f"App '{name}': entry_path '{entry_path}' invalide — "
+                f"format attendu: /chemin/dans/l-app (ex: /ui/dashboard), "
+                f"sans query string"
             )
 
         ws_target = app.get('ws_target', '')
@@ -101,6 +265,7 @@ def generate_nginx_config(config_file='/app/config.yml'):
         apps = config.get('apps', [])
         debug_mode = config.get('debug', False)
         print(f"[DEBUG] {len(apps)} application(s) found")
+        assign_paths(apps)
         validate_apps(apps)
         print(f"[DEBUG] Debug mode: {debug_mode}")
 
@@ -116,7 +281,7 @@ def generate_nginx_config(config_file='/app/config.yml'):
         secrets_map = {}
         for i, app in enumerate(apps):
             print(f"[DEBUG] App {i+1}: {app.get('name', 'N/A')}")
-            app_path = app.get('path', f"/{app['name'].lower().replace(' ', '-')}")
+            app_path = app['path']  # always set by assign_paths()
             secret_value = app.get('secret', '')
             has_secret = bool(secret_value)
             if has_secret:
@@ -298,10 +463,24 @@ http {{
 
         # Generate one proxy location block per configured app
         print("[DEBUG] Generating proxy configurations...")
+        autodetect_default = config.get('autodetect', True)
         for app in apps:
             name = app['name']
             url = app['url']
-            path = app.get('path', f"/{name.lower().replace(' ', '-')}")
+
+            # Autodetection fills the gaps only: anything written in the config wins,
+            # so a detection the user disagrees with can always be pinned by hand.
+            if app.get('autodetect', autodetect_default):
+                for key, value in detect_app_options(name, url).items():
+                    if key in app:
+                        print(f"[AUTO] {name}: {key} detected as {value}, "
+                              f"keeping configured value {app[key]!r}")
+                    else:
+                        app[key] = value
+                        print(f"[AUTO] {name}: {key} = {value}")
+            else:
+                print(f"[AUTO] {name}: autodetect disabled")
+            path = app['path']  # always set by assign_paths()
 
             print(f"[DEBUG] App raw config: {app}")
 
@@ -676,7 +855,7 @@ http {{
         }}
 """
 
-                # Static assets get their own location under fast_upstream.
+                # Static assets always get their own location.
                 # The main location has to blank Accept-Encoding so sub_filter can
                 # rewrite HTML, but sub_filter_types is text/html only — JS, CSS and
                 # images were being decompressed for nothing (a modern SPA bundle
@@ -684,12 +863,13 @@ http {{
                 # browser refetched the whole bundle on every load. Here compression
                 # and the upstream cache headers are left alone. A regex location wins
                 # over the prefix location above regardless of declaration order.
-                if fast_upstream:
-                    asset_exts = (
-                        'js|mjs|css|map|woff2?|ttf|otf|eot|'
-                        'png|jpe?g|gif|svg|webp|avif|ico|webmanifest|mp3|wav|ogg'
-                    )
-                    nginx_config += f"""
+                # No option gates this: it only ever matches requests with a file
+                # extension, so it cannot affect HTML, API calls, SSE or WebSockets.
+                asset_exts = (
+                    'js|mjs|css|map|woff2?|ttf|otf|eot|'
+                    'png|jpe?g|gif|svg|webp|avif|ico|webmanifest|mp3|wav|ogg'
+                )
+                nginx_config += f"""
         # Static assets for {name} (compression and upstream caching preserved)
         location ~* ^{path}/.+\\.(?:{asset_exts})$ {{{auth_request_block}
             {token_config}
@@ -716,14 +896,31 @@ http {{
             proxy_buffering on;
         }}
 """
-                    print(f"[DEBUG] fast_upstream: dedicated static asset location for {name}")
 
-            # Redirect /path → /path/ : apps with relative assets (embedded firmwares,
+            # entry_path — force the browser onto the app's real entry URL.
+            # Apps that answer their root with a redirect (BirdNET-Go: / → /ui/dashboard)
+            # can end up rendered at {path}/ instead: HA ingress follows the upstream
+            # redirect itself, so the browser address bar never leaves {path}/. Apps that
+            # derive their own base path from the URL then compute the wrong prefix and
+            # send every API call to the domain root. Redirecting the entry point
+            # ourselves keeps the browser on a URL the app can parse.
+            entry_path = app.get('entry_path', '')
+            landing = f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
+            if entry_path:
+                print(f"[DEBUG] entry_path for {name}: {path}/ → {landing}")
+                nginx_config += f"""
+        # Entry point for {name} (the app cannot be rendered at {path}/ itself)
+        location = {path}/ {{
+            return 301 {landing};
+        }}
+"""
+
+            # Redirect /path → landing : apps with relative assets (embedded firmwares,
             # simple web UIs) resolve them against the wrong base without the slash.
             nginx_config += f"""
         # Trailing-slash redirect for {name}
         location = {path} {{
-            return 301 {effective_path}/;
+            return 301 {landing};
         }}
 """
 

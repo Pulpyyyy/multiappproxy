@@ -1,3 +1,19 @@
+## 1.3.0
+
+Fewer options to find: an app usually needs nothing but a `name` and a `url`.
+
+### Breaking
+- **`path` is no longer configurable** — the proxy path is derived from the app name (`BirdNET-Go` → `/birdnet-go`), accents folded, collisions and portal routes (`/api`, `/static`) resolved with a numeric suffix. It is deterministic, so URLs stay stable across restarts, **but apps whose configured path did not match their name change URL**: existing bookmarks and dashboard links must be updated. A leftover `path` is still accepted by the schema so older configurations start, and is reported as ignored in the log
+
+### Added
+- **Autodetection** (on by default, `autodetect: false` to disable globally or per app): each upstream is probed at startup and the options that can be read off an HTTP response are inferred — `entry_path` (the app redirects its root elsewhere), `hide_csp` (`frame-ancestors 'none'` / `X-Frame-Options: DENY`), `csrf_fix` (403 only once `Host`/`Origin`/`Referer` are foreign). Configured values always win, every decision is logged as `[AUTO] …`, and an unreachable upstream degrades to the configured options instead of blocking startup
+- **`entry_path`** (per-app): internal path the browser is sent to when the app is opened. Apps that answer their root with a redirect never reach it through HA ingress — the ingress follows the redirect itself, leaving the browser on `{path}/`, where apps deriving their base path from the URL compute the wrong prefix and send every call to the domain root (BirdNET-Go)
+
+### Changed
+- Static assets are now always served from their dedicated location, with no option to enable: it only matches requests with a file extension, so it cannot affect HTML, API calls, SSE or WebSockets. `fast_upstream` is back to what genuinely needs a decision — response buffering and cache headers on the app's own responses
+
+---
+
 ## 1.2.3
 
 ### Changed
