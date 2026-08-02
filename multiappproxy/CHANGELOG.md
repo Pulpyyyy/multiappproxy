@@ -1,22 +1,3 @@
-## 1.3.2
-
-### Fixed
-- **Entry-point and trailing-slash redirects are 302, not 301.** A 301 is cached by browsers indefinitely and replayed without ever contacting the server again: once a wrong redirect had been served, updating the addon changed nothing for the client. These targets come from a probe replayed at every start — they were never permanent. Browsers still holding a cached 301 must be cleared once (private window, or clear cached files)
-- **Redirects are now protocol-relative** (`//$host/...`). Choosing the scheme ourselves relied on `X-Forwarded-Proto`, which is not always present, and a bare path comes back from HA ingress as `http://$host:8099/...`. `//host/path` lets the browser reuse the scheme of the page it is on — https behind the ingress, http on direct access
-- `sub_filter_types` no longer lists `text/html`, which nginx always filters — it warned `duplicate MIME type "text/html"` on every start
-
-### Changed
-- The `csrf_fix` probe also tries the detected entry point, and treats a `401` baseline turning into `403` as an origin check rather than an auth wall. It stays best-effort: an app whose check is confined to the endpoints its UI calls cannot be seen from the pages we know about (ESPSomfy-RTS answers 200 on `/` whatever the Origin and only rejects on `/bootstrap`), and still needs `csrf_fix` set by hand
-
----
-
-## 1.3.1
-
-### Fixed
-- **Redirects are now absolute URLs.** The entry-point, trailing-slash and auth-failure redirects emitted a bare path, and HA ingress rewrites a relative `Location` into `http://$host:8099/...` — which the browser blocks as mixed content on an HTTPS dashboard (`Mixed Content: … requested an insecure resource`). They now build `$proxy_redirect_proto://$host/...` like `proxy_redirect` already did. The trailing-slash redirect had carried the flaw silently since 1.2.0; the entry-point redirect added in 1.3.0 made it fire on every app open
-
----
-
 ## 1.3.0
 
 Fewer options to find: an app usually needs nothing but a `name` and a `url`.
@@ -25,11 +6,16 @@ Fewer options to find: an app usually needs nothing but a `name` and a `url`.
 - **`path` is no longer configurable** — the proxy path is derived from the app name (`BirdNET-Go` → `/birdnet-go`), accents folded, collisions and portal routes (`/api`, `/static`) resolved with a numeric suffix. It is deterministic, so URLs stay stable across restarts, **but apps whose configured path did not match their name change URL**: existing bookmarks and dashboard links must be updated. A leftover `path` is still accepted by the schema so older configurations start, and is reported as ignored in the log
 
 ### Added
-- **Autodetection** (on by default, `autodetect: false` to disable globally or per app): each upstream is probed at startup and the options that can be read off an HTTP response are inferred — `entry_path` (the app redirects its root elsewhere), `hide_csp` (`frame-ancestors 'none'` / `X-Frame-Options: DENY`), `csrf_fix` (403 only once `Host`/`Origin`/`Referer` are foreign). Configured values always win, every decision is logged as `[AUTO] …`, and an unreachable upstream degrades to the configured options instead of blocking startup
-- **`entry_path`** (per-app): internal path the browser is sent to when the app is opened. Apps that answer their root with a redirect never reach it through HA ingress — the ingress follows the redirect itself, leaving the browser on `{path}/`, where apps deriving their base path from the URL compute the wrong prefix and send every call to the domain root (BirdNET-Go)
+- **Autodetection** (on by default, `autodetect: false` to disable globally or per app): each upstream is probed at startup and the options that can be read off an HTTP response are inferred — `entry_path` (the app redirects its root elsewhere), `hide_csp` (`frame-ancestors 'none'` / `X-Frame-Options: DENY`), `csrf_fix` (a `403` appearing only once `Origin`/`Referer` are foreign, including a `401` baseline turning into `403`). Configured values always win, every decision is logged as `[AUTO] …`, and an unreachable upstream degrades to the configured options instead of blocking startup.
+  `csrf_fix` detection is best-effort by construction: an app whose check is confined to the endpoints its UI calls cannot be seen from the pages we know about — ESPSomfy-RTS answers 200 on `/` whatever the Origin and only rejects on `/bootstrap` — and still needs the option set by hand
+- **`entry_path`** (per-app, usually autodetected): internal path the browser is sent to when the app is opened. Apps that answer their root with a redirect never reach it through HA ingress — the ingress follows the redirect itself, leaving the browser on `{path}/`, where apps deriving their base path from the URL compute the wrong prefix and send every call to the domain root (BirdNET-Go)
 
 ### Changed
 - Static assets are now always served from their dedicated location, with no option to enable: it only matches requests with a file extension, so it cannot affect HTML, API calls, SSE or WebSockets. `fast_upstream` is back to what genuinely needs a decision — response buffering and cache headers on the app's own responses
+
+### Fixed
+- **Redirects carry a host and are no longer permanent.** They were emitted as a bare path, which HA ingress turns into `http://$host:8099/...` — blocked as mixed content on an HTTPS dashboard — and as a `301`, which browsers cache indefinitely and replay without ever contacting the server again, so updating the addon could not reach a client that had already cached a wrong one. They are now `302` and protocol-relative (`//$host/...`), letting the browser reuse the scheme of the page it is on: https behind the ingress, http on direct access. A browser still holding a cached `301` from an earlier version must be cleared once (private window, or clear cached files)
+- `sub_filter_types` no longer lists `text/html`, which nginx always filters — it warned `duplicate MIME type "text/html"` on every start
 
 ---
 
