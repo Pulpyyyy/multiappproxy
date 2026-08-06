@@ -442,6 +442,21 @@ http {{
     # X-Ingress-Path, so its presence means the browser is on the HA page, which is
     # https whenever HA is reachable over TLS — and an https page could not follow an
     # http redirect anyway. On direct access, $scheme is the truth.
+    # The host the browser actually typed. Behind HA ingress $host is whatever the
+    # addon's listener was reached as, which can be an internal name the browser
+    # cannot resolve — an app that builds its own absolute URLs from Host then sends
+    # the browser somewhere that does not exist. X-Forwarded-Host carries the real
+    # one; when it is absent (direct access) $host already is the real one.
+    # A chain of proxies appends to X-Forwarded-Host, so it can arrive as
+    # "public.example, inner.example". Only the first hop is the browser's, and
+    # sending the whole list as a Host header would be malformed — take the first
+    # value, fall back to $host on anything unexpected.
+    map $http_x_forwarded_host $public_host {{
+        ""                    $host;
+        "~^(?<xfh>[^,\\s]+)"  $xfh;
+        default               $host;
+    }}
+
     map $http_x_ingress_path $fallback_proto {{
         ""      $scheme;
         default https;
@@ -686,7 +701,12 @@ http {{
                 # Its Location headers already carry the prefix — only the scheme and
                 # host are missing, without which HA ingress rewrites the bare path into
                 # http://$host:8099/... and the browser blocks it as mixed content.
-                redirect_prefix = ""
+                # Its Location headers already carry the prefix, so only the scheme and
+                # host are added — inserting the prefix again would double it.
+                redirect_block = (
+                    "            proxy_redirect ~^/(.*) "
+                    "$proxy_redirect_proto://$public_host/$1;"
+                )
                 asset_prefix_header = (
                     f'proxy_set_header X-Ingress-Path "$http_x_ingress_path{path}";'
                 )
@@ -701,7 +721,29 @@ http {{
             # Disable compression so sub_filter can rewrite HTML responses
             proxy_set_header Accept-Encoding "";
 """
-                redirect_prefix = effective_path
+                # Two shapes have to be caught. A path-only Location is missing the
+                # prefix and the scheme both. An absolute one — built by an app that
+                # derives its URLs from the Host header, as Laravel does — names the
+                # right host but knows nothing of the prefix. Matching on our own host
+                # keeps third-party redirects (OAuth providers) strictly untouched.
+                # nginx tries these in order and stops at the first match, so the
+                # already-prefixed shapes come first. Without them, an app configured
+                # by hand with the full public URL — the workaround people reach for
+                # when an app cannot find its own prefix — would get it added twice.
+                redirect_block = "\n".join([
+                    f"            proxy_redirect http://$public_host{effective_path}/"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f"            proxy_redirect https://$public_host{effective_path}/"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f"            proxy_redirect {effective_path}/"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f"            proxy_redirect http://$public_host/"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f"            proxy_redirect https://$public_host/"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f"            proxy_redirect ~^/(.*)"
+                    f" $proxy_redirect_proto://$public_host{effective_path}/$1;",
+                ])
                 asset_prefix_header = 'proxy_set_header X-Ingress-Path "";'
 
             if preserve_path:
@@ -722,11 +764,11 @@ http {{
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
-            proxy_set_header Host $host;
+            proxy_set_header Host $public_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Host $public_host;
 
             # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
             {buffering_directive}
@@ -770,17 +812,17 @@ http {{
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
 
             # Standard forwarding headers
-            proxy_set_header Host $host;
+            proxy_set_header Host $public_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Host $public_host;
 
             # Let the upstream know its external path
             proxy_set_header X-External-Path {path};
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$public_host{effective_path}/$1;
 
             # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
             {buffering_directive}
@@ -809,7 +851,7 @@ http {{
             rewrite ^{path}/(.*) /$1 break;
             proxy_pass {url};
             {ssl_block}
-            proxy_set_header Host $host;
+            proxy_set_header Host $public_host;
             proxy_cache_valid 200 1h;
             expires 1h;
         }}
@@ -848,7 +890,7 @@ http {{
                     )
                     print(f"[DEBUG] csrf_fix enabled for {name}: Origin/Referer → {upstream_origin}")
                 else:
-                    host_header = "proxy_set_header Host $host;"
+                    host_header = "proxy_set_header Host $public_host;"
                     csrf_origin_header = ""
 
                 token_config = ''
@@ -1051,11 +1093,11 @@ http {{
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Host $public_host;
 
 {prefix_header_block}
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{redirect_prefix}/$1;
+{redirect_block}
 
 {cache_headers_block}
             proxy_read_timeout 86400;
@@ -1103,11 +1145,11 @@ http {{
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Host $http_host;
+            proxy_set_header X-Forwarded-Host $public_host;
             {asset_prefix_header}
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$host{effective_path}/$1;
+            proxy_redirect ~^/(.*) $proxy_redirect_proto://$public_host{effective_path}/$1;
 
             proxy_buffering on;
         }}
@@ -1126,7 +1168,7 @@ http {{
             # and a protocol-relative //host/path alike, producing
             # http://host:8099//host/path, which an HTTPS dashboard blocks as mixed
             # content. Only an absolute URL is passed through untouched.
-            landing = "$proxy_redirect_proto://$host" + (
+            landing = "$proxy_redirect_proto://$public_host" + (
                 f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
             )
             # 302, not 301: the entry point comes from a probe replayed at every start,
@@ -1184,7 +1226,7 @@ http {{
 
         # Absolute for the same reason as the entry-point redirects: HA ingress
         # rewrites anything else into http://$host:8099/...
-        home_redirect = "$proxy_redirect_proto://$host" + (
+        home_redirect = "$proxy_redirect_proto://$public_host" + (
             ingress_entry.rstrip('/') + '/' if is_ingress else '/'
         )
         nginx_config += f"""

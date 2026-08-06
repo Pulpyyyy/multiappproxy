@@ -1,3 +1,12 @@
+## 1.3.1
+
+### Fixed
+- **Apps that build their own absolute URLs are now told the host the browser actually typed.** Behind HA ingress, `$host` is whatever the addon's listener was reached as, which can be an internal name: an app deriving its URLs from `Host`, as any Laravel app does, then redirects the browser to a name it cannot resolve (`homeassistant's server IP address could not be found`). `X-Forwarded-Host` carries the real one, and is used when present. On direct access nothing changes, since `$host` already is the real one. A multi-valued header keeps only its first hop, so a chain of proxies cannot produce a malformed `Host`
+- **Absolute `Location` headers pointing at our own host are prefixed too.** Only path-only redirects were being rewritten; an app that names the host but knows nothing of the proxy prefix was passed through untouched. Redirects to a third party, an OAuth provider for instance, are strictly unaffected since the match is on our own host. Locations that already carry the prefix are matched first and left alone, so an app configured by hand with the full public URL does not get it added twice
+- `csrf_fix` still overrides the `Host` header, and apps in `native_base_path` mode still get no prefixing at all: both were verified on the generated configuration
+
+---
+
 ## 1.3.0
 
 Fewer options to find, and apps that work behind the proxy without being told how.
