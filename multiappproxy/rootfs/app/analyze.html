@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyze an app — Multi-App Proxy</title>
+    <style>
+        /* Same variables and fallbacks as index.html: inside the ingress iframe the
+           HA theme does not reach us, so the fallbacks are what actually renders and
+           the two pages have to agree on them. */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: var(--primary-background-color, #111);
+            color: var(--primary-text-color, #e1e1e1);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+
+        header { display: flex; flex-direction: column; gap: .4rem; }
+        .back { color: var(--secondary-text-color, #9b9b9b); text-decoration: none; font-size: .9rem; }
+        .back:hover { color: var(--primary-color, #03a9f4); }
+        h1 { font-size: 2rem; font-weight: 300; color: var(--primary-color, #03a9f4); }
+        .lede { color: var(--secondary-text-color, #9b9b9b); max-width: 62ch; }
+
+        .panel {
+            background: var(--card-background-color, #1c1c1c);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 12px;
+        }
+        .panel-pad { padding: 1.25rem; }
+        .panel-head {
+            display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+            padding: .9rem 1.25rem; border-bottom: 1px solid var(--divider-color, #2c2c2c);
+        }
+        .panel-title {
+            font-size: .8rem; letter-spacing: .07em; text-transform: uppercase;
+            color: var(--secondary-text-color, #9b9b9b); font-weight: 500;
+        }
+
+        .query { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; }
+        .field { flex: 1 1 22rem; display: flex; flex-direction: column; gap: .4rem; }
+        label { font-size: .85rem; color: var(--secondary-text-color, #9b9b9b); }
+        input[type="url"] {
+            width: 100%;
+            background: var(--primary-background-color, #111);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 8px;
+            padding: .75rem 1rem;
+            color: var(--primary-text-color, #e1e1e1);
+            font-family: monospace; font-size: .95rem;
+            outline: none; transition: border-color .2s;
+        }
+        input[type="url"]:focus { border-color: var(--primary-color, #03a9f4); }
+
+        button {
+            font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid transparent;
+            padding: .75rem 1.5rem; transition: opacity .2s, border-color .2s;
+        }
+        button:focus-visible { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: 2px; }
+        .btn-primary { background: var(--primary-color, #03a9f4); color: #fff; }
+        .btn-primary:hover { opacity: .85; }
+        .btn-primary:disabled { opacity: .5; cursor: default; }
+        .btn-ghost {
+            background: transparent; color: var(--secondary-text-color, #9b9b9b);
+            border-color: var(--divider-color, #2c2c2c); padding: .35rem .8rem; font-size: .85rem;
+        }
+        .btn-ghost:hover { border-color: var(--primary-color, #03a9f4); color: var(--primary-text-color, #e1e1e1); }
+
+        .probe { display: flex; flex-direction: column; gap: .3rem; font-family: monospace; font-size: .85rem; }
+        .probe-step { display: flex; gap: .6rem; color: var(--secondary-text-color, #9b9b9b); }
+        .probe-mark { color: var(--primary-color, #03a9f4); width: 1rem; flex: none; }
+        .probe-detail { opacity: .65; }
+
+        .verdict { display: flex; padding: 1.15rem 1.25rem; border-left: 3px solid var(--tone, #03a9f4); }
+        .verdict-body { display: flex; flex-direction: column; gap: .35rem; }
+        .verdict h2 { font-size: 1.15rem; font-weight: 500; }
+        .verdict p { color: var(--secondary-text-color, #9b9b9b); max-width: 62ch; }
+        .pill {
+            align-self: flex-start; font-size: .72rem; font-weight: 700;
+            letter-spacing: .06em; text-transform: uppercase;
+            padding: .2rem .6rem; border-radius: 999px;
+            color: var(--tone, #03a9f4); border: 1px solid var(--tone, #03a9f4);
+        }
+        .tone-ok   { --tone: #4caf50; }
+        .tone-warn { --tone: #ffa726; }
+        .tone-stop { --tone: var(--error-color, #db4437); }
+
+        .findings { list-style: none; }
+        .findings li {
+            display: flex; flex-direction: column; gap: .35rem;
+            padding: .95rem 1.25rem; border-top: 1px solid var(--divider-color, #2c2c2c);
+        }
+        .findings li:first-child { border-top: none; }
+        .finding-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+        .tag {
+            font-family: monospace; font-size: .8rem; padding: .1rem .45rem; border-radius: 5px;
+            background: var(--primary-background-color, #111);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            color: var(--primary-color, #03a9f4);
+        }
+        .evidence {
+            font-family: monospace; font-size: .8rem; color: var(--secondary-text-color, #9b9b9b);
+            background: var(--primary-background-color, #111);
+            border: 1px solid var(--divider-color, #2c2c2c);
+            border-radius: 6px; padding: .5rem .65rem; overflow-x: auto; white-space: pre;
+        }
+
+        pre {
+            padding: 1.1rem 1.25rem; overflow-x: auto;
+            font-family: monospace; font-size: .88rem; line-height: 1.7;
+        }
+        pre .c { color: var(--secondary-text-color, #9b9b9b); }
+
+        .note {
+            padding: .95rem 1.25rem; border-top: 1px solid var(--divider-color, #2c2c2c);
+            color: var(--secondary-text-color, #9b9b9b); font-size: .88rem;
+        }
+        .note strong { color: var(--primary-text-color, #e1e1e1); font-weight: 500; }
+        .note code {
+            font-family: monospace; font-size: .85rem;
+            color: var(--primary-color, #03a9f4);
+        }
+
+        .message { padding: 1rem 1.25rem; border-radius: 8px; }
+        .message.error { background: var(--error-color, #db4437); color: #fff; }
+        .hidden { display: none; }
+        footer {
+            text-align: center; margin-top: 1rem; padding-top: 1.5rem;
+            border-top: 1px solid var(--divider-color, #2c2c2c);
+            color: var(--secondary-text-color, #9b9b9b); font-size: .9rem;
+        }
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <a class="back" href="./">← All apps</a>
+        <h1>Analyze an app</h1>
+        <p class="lede">Give the proxy a URL. It sends a few harmless requests, works out how
+            the app builds its links, and writes the configuration it would need.</p>
+    </header>
+
+    <div id="denied" class="message error hidden">
+        This page is for administrators. Ask whoever administers this Home Assistant to run the analysis.
+    </div>
+
+    <section class="panel panel-pad hidden" id="form">
+        <div class="query">
+            <div class="field">
+                <label for="url">Application URL</label>
+                <input type="url" id="url" placeholder="http://192.168.1.50:8080" spellcheck="false">
+            </div>
+            <button class="btn-primary" id="run">Analyze</button>
+        </div>
+    </section>
+
+    <section class="panel panel-pad hidden" id="probing" aria-live="polite">
+        <div class="probe" id="probe-log"></div>
+    </section>
+
+    <div id="failed" class="message error hidden"></div>
+
+    <div id="result" class="hidden" style="display:none;flex-direction:column;gap:1.5rem;" aria-live="polite">
+        <section class="panel">
+            <div class="verdict" id="verdict">
+                <div class="verdict-body">
+                    <span class="pill" id="verdict-pill"></span>
+                    <h2 id="verdict-title"></h2>
+                    <p id="verdict-text"></p>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head"><span class="panel-title">What the probe saw</span></div>
+            <ul class="findings" id="findings"></ul>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <span class="panel-title">Starting point</span>
+                <button class="btn-ghost" id="copy">Copy</button>
+            </div>
+            <pre id="yaml"></pre>
+            <div class="note" id="manual"></div>
+        </section>
+    </div>
+
+    <footer>🚀 Multi-App Proxy</footer>
+</div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+    // The page is served at {base}/analyze, so the portal root is one segment up.
+    const basePath = window.location.pathname.replace(/\/analyze\/?$/, '');
+    const api = (route) => (basePath ? basePath + route : route);
+
+    const RUNNING_STEPS = [
+        'asking the app for its home page',
+        'asking again with a prefix header',
+        'asking again with a foreign Origin',
+        'reading the page it actually serves',
+        'reading its scripts'
+    ];
+
+    function renderProbe(steps, running) {
+        $('probe-log').innerHTML = steps.map((s) => {
+            const label = running ? s : s.step;
+            const detail = running ? '' : ' <span class="probe-detail">(' + esc(s.detail) + ')</span>';
+            const mark = running ? '›' : (s.ok ? '✓' : '✗');
+            return '<div class="probe-step"><span class="probe-mark">' + mark + '</span>' +
+                   '<span>' + esc(label) + detail + '</span></div>';
+        }).join('');
+    }
+
+    async function run() {
+        const url = $('url').value.trim();
+        if (!url) return;
+        $('run').disabled = true;
+        $('result').classList.add('hidden');
+        $('result').style.display = 'none';
+        $('failed').classList.add('hidden');
+        $('probing').classList.remove('hidden');
+        renderProbe(RUNNING_STEPS, true);
+
+        let data;
+        try {
+            const res = await fetch(api('/api/analyze'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+            data = await res.json();
+        } catch (e) {
+            data = { ok: false, error: 'The analysis could not be reached: ' + e.message };
+        }
+        $('run').disabled = false;
+
+        if (data.probe && data.probe.length) {
+            renderProbe(data.probe, false);
+        } else {
+            $('probing').classList.add('hidden');
+        }
+
+        if (!data.ok) {
+            $('failed').textContent = data.error || 'The analysis did not complete.';
+            $('failed').classList.remove('hidden');
+            return;
+        }
+        render(data);
+    }
+
+    function render(data) {
+        $('verdict').className = 'verdict tone-' + data.verdict.tone;
+        $('verdict-pill').textContent = data.verdict.pill;
+        $('verdict-title').textContent = data.verdict.title;
+        $('verdict-text').textContent = data.verdict.text;
+
+        $('findings').innerHTML = data.findings.map((f) => {
+            const label = f.value === null || f.value === undefined ? f.tag : f.tag + ': ' + f.value;
+            return '<li><div class="finding-head"><code class="tag">' + esc(label) + '</code>' +
+                   '<span>' + esc(f.claim) + '</span></div>' +
+                   '<div class="evidence">' + esc(f.evidence) + '</div></li>';
+        }).join('');
+
+        // Comments are dimmed so the lines that were worked out stand apart from
+        // the placeholders the user is meant to replace.
+        $('yaml').innerHTML = data.yaml.split('\n').map((line) => {
+            const at = line.indexOf('#');
+            if (at === -1) return esc(line);
+            return esc(line.slice(0, at)) + '<span class="c">' + esc(line.slice(at)) + '</span>';
+        }).join('\n');
+
+        $('manual').innerHTML = data.manual;
+        $('result').classList.remove('hidden');
+        $('result').style.display = 'flex';
+    }
+
+    $('copy').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText($('yaml').innerText); } catch (e) { /* not available */ }
+        $('copy').textContent = 'Copied';
+        setTimeout(() => ($('copy').textContent = 'Copy'), 1400);
+    });
+    $('run').addEventListener('click', run);
+    $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+
+    function esc(s) {
+        return String(s === null || s === undefined ? '' : s)
+            .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    }
+
+    // The API refuses non-admins anyway; asking first is only so the page says why
+    // instead of failing on the first click.
+    (async () => {
+        try {
+            const res = await fetch(api('/api/user'));
+            const user = res.ok ? await res.json() : {};
+            if (user.is_admin === true) {
+                $('form').classList.remove('hidden');
+                $('url').focus();
+                return;
+            }
+        } catch (e) { /* fall through to the refusal below */ }
+        $('denied').classList.remove('hidden');
+    })();
+</script>
+</body>
+</html>

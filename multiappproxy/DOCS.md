@@ -190,6 +190,48 @@ If an upstream is powered off at startup, its probe times out after 3 s, a
 warning is logged and its configured options are used unchanged — detection
 never blocks the addon from starting. Restarting the addon re-runs it.
 
+### Analyzing an app before you configure it
+
+Autodetection fills in the options of an app you have already added. The analyzer
+answers the question that comes first: given a URL, what does this app need, and
+is there anything the proxy cannot do for it?
+
+Open the portal and follow **🔎 Analyze an app** at the top of the page. The link
+only appears for administrators, and the analysis itself refuses anyone else,
+because it makes the addon send a request to any address you name.
+
+Paste the app's URL and you get three things: a verdict in one sentence, the
+requests and responses that led to it, and a YAML entry to copy into the addon
+configuration. Every line of that entry carries the reason it is there, so a
+decision you disagree with can be spotted and removed rather than trusted blind.
+
+The verdict comes down to how the app writes its links, which is what decides
+whether proxying can work at all:
+
+| The app publishes | What happens |
+|-------------------|--------------|
+| relative links | nothing to do, it works under any prefix |
+| links starting with `/` | the common case, the proxy rewrites them |
+| links carrying its own host | **no option fixes this** — the app has to be told its own public address, in its own configuration |
+
+That last row is the one worth knowing about. Nothing in the option list expresses
+it, and an app in that state renders a half-broken page that looks like a proxy
+misconfiguration when it is not one. BookStack is the usual example: it needs
+`APP_URL` set, and no combination of `rewrite`, `preserve_path` or
+`native_base_path` will substitute for it.
+
+The analyzer also reads the app's own scripts, up to three of them, because
+`sub_filter` never sees a URL built in JavaScript. It reports what it finds there:
+a service worker registration (which the proxy does **not** rewrite), a WebSocket
+address hardcoded rather than derived from the page (which is what `ws_target` is
+for), and asset bases baked in by a bundler (which the runtime patch corrects).
+It never reports the absence of any of these: each script is read up to 256 KB, so
+"not found" would mean "not found yet".
+
+`fast_upstream`, `ssl_verify` and `ws_target` stay yours to decide. The first is a
+performance judgement rather than a property of the app, the second is a question
+of trust, and the third needs a port number that no HTTP response reveals.
+
 ### Categories and Icons
 
 The following categories have automatic icons:

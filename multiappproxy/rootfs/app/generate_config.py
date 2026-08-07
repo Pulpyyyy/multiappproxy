@@ -429,19 +429,31 @@ http {{
     # Rate limiting — secret verification (5 tentatives/min par IP)
     limit_req_zone $binary_remote_addr zone=verify_secret:10m rate=5r/m;
 
-    # Protocole réel pour la réécriture des redirects upstream.
-    # HA ingress pose X-Forwarded-Proto: https ; en accès direct on utilise $scheme.
-    # Permet de retourner des Location absolus en HTTPS plutôt que relatifs (que HA
-    # reconvertirait en http://host:8099/... illisibles par le service worker).
-    map $http_x_forwarded_proto $proxy_redirect_proto {{
-        ""      $fallback_proto;
-        default $http_x_forwarded_proto;
+    # The scheme the browser actually used. HA ingress sets X-Forwarded-Proto: https;
+    # on direct access $scheme is the truth. It serves two purposes: the Location
+    # headers we rewrite come back absolute in HTTPS rather than relative (HA would
+    # turn a relative one into http://host:8099/..., unreadable by the service
+    # worker), and it is what we forward upstream. $scheme must never be forwarded:
+    # on the ingress hop it is plain http, so an app deriving its own absolute URLs
+    # from it — as any Laravel app does — builds them on http and an HTTPS dashboard
+    # blocks every one of them as mixed content.
+    # A chain of proxies appends to the header, so keep only the first hop; the whole
+    # list would be neither a valid scheme nor a usable one.
+    map $http_x_forwarded_proto $public_proto {{
+        ""                    $fallback_proto;
+        "~^(?<xfp>[^,\\s]+)"  $xfp;
+        default               $fallback_proto;
     }}
 
     # Fallback when X-Forwarded-Proto is missing. HA ingress always sets
     # X-Ingress-Path, so its presence means the browser is on the HA page, which is
     # https whenever HA is reachable over TLS — and an https page could not follow an
     # http redirect anyway. On direct access, $scheme is the truth.
+    map $http_x_ingress_path $fallback_proto {{
+        ""      $scheme;
+        default https;
+    }}
+
     # The host the browser actually typed. Behind HA ingress $host is whatever the
     # addon's listener was reached as, which can be an internal name the browser
     # cannot resolve — an app that builds its own absolute URLs from Host then sends
@@ -457,9 +469,19 @@ http {{
         default               $host;
     }}
 
-    map $http_x_ingress_path $fallback_proto {{
-        ""      $scheme;
-        default https;
+    # An app with a strict CSP (script-src 'nonce-...' 'strict-dynamic') blocks the
+    # runtime URL patch injected below, and does it silently: the page renders, the
+    # console shows one violation, and only the URLs the app builds in JavaScript
+    # stay wrong. The nonce is minted per response, so it is read off the upstream
+    # header and carried onto our own script tag — the policy then accepts it, and
+    # nothing has to be disabled. hide_csp remains for the apps whose policy breaks
+    # the ingress iframe itself, which is a different problem.
+    # script-src is tried first: default-src only applies where script-src is absent.
+    map $upstream_http_content_security_policy $csp_nonce_attr {{
+        ""                                            "";
+        "~*script-src[^;]*'nonce-(?<cspn>[^']+)'"     ' nonce="$cspn"';
+        "~*default-src[^;]*'nonce-(?<cspd>[^']+)'"    ' nonce="$cspd"';
+        default                                       "";
     }}
 
     # Map to handle the Ingress path prefix
@@ -519,6 +541,27 @@ http {{
             proxy_set_header Host $host;
             proxy_connect_timeout 5s;
             proxy_read_timeout 10s;
+        }
+
+        # Analyzer page. Static, and left ungated on purpose: it shows nothing on
+        # its own, and the API it calls refuses anyone who is not an administrator.
+        location = /analyze {
+            alias /app/;
+            try_files /analyze.html =404;
+        }
+
+        # The analyzer issues several probes to the upstream, each with its own
+        # timeout, so it needs far more room than the portal's own API calls.
+        location = /api/analyze {
+            proxy_pass http://127.0.0.1:8088;
+            proxy_http_version 1.1;
+            proxy_set_header X-Remote-User-Id $http_x_remote_user_id;
+            proxy_set_header X-Remote-User-Name $http_x_remote_user_name;
+            proxy_set_header X-Remote-User-Display-Name $http_x_remote_user_display_name;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Host $host;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 60s;
         }
 
         # Internal API: user info and secret verification
@@ -705,7 +748,7 @@ http {{
                 # host are added — inserting the prefix again would double it.
                 redirect_block = (
                     "            proxy_redirect ~^/(.*) "
-                    "$proxy_redirect_proto://$public_host/$1;"
+                    "$public_proto://$public_host/$1;"
                 )
                 asset_prefix_header = (
                     f'proxy_set_header X-Ingress-Path "$http_x_ingress_path{path}";'
@@ -732,17 +775,17 @@ http {{
                 # when an app cannot find its own prefix — would get it added twice.
                 redirect_block = "\n".join([
                     f"            proxy_redirect http://$public_host{effective_path}/"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f" $public_proto://$public_host{effective_path}/;",
                     f"            proxy_redirect https://$public_host{effective_path}/"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f" $public_proto://$public_host{effective_path}/;",
                     f"            proxy_redirect {effective_path}/"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f" $public_proto://$public_host{effective_path}/;",
                     f"            proxy_redirect http://$public_host/"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f" $public_proto://$public_host{effective_path}/;",
                     f"            proxy_redirect https://$public_host/"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/;",
+                    f" $public_proto://$public_host{effective_path}/;",
                     f"            proxy_redirect ~^/(.*)"
-                    f" $proxy_redirect_proto://$public_host{effective_path}/$1;",
+                    f" $public_proto://$public_host{effective_path}/$1;",
                 ])
                 asset_prefix_header = 'proxy_set_header X-Ingress-Path "";'
 
@@ -767,7 +810,7 @@ http {{
             proxy_set_header Host $public_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $public_proto;
             proxy_set_header X-Forwarded-Host $public_host;
 
             # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
@@ -815,14 +858,14 @@ http {{
             proxy_set_header Host $public_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $public_proto;
             proxy_set_header X-Forwarded-Host $public_host;
 
             # Let the upstream know its external path
             proxy_set_header X-External-Path {path};
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$public_host{effective_path}/$1;
+            proxy_redirect ~^/(.*) $public_proto://$public_host{effective_path}/$1;
 
             # Response buffering (nginx always tunnels WebSocket upgrades unbuffered)
             {buffering_directive}
@@ -1026,8 +1069,12 @@ http {{
                         "return SA.call(this,n,v);};"
                         "}());"
                     )
+                    # $csp_nonce_attr carries the upstream nonce when the app sends a
+                    # strict CSP, and expands to nothing otherwise — so the tag stays
+                    # plain <script> for the apps that have no policy at all.
                     patch_inject = (
-                        f"\n            sub_filter '<head>' '<head><script>{patch}</script>';"
+                        f"\n            sub_filter '<head>' "
+                        f"'<head><script$csp_nonce_attr>{patch}</script>';"
                     )
                     print(f"[DEBUG] Runtime URL patch injected for {name} (prefix {effective_path})")
 
@@ -1092,7 +1139,7 @@ http {{
             {csrf_origin_header}
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $public_proto;
             proxy_set_header X-Forwarded-Host $public_host;
 
 {prefix_header_block}
@@ -1144,12 +1191,12 @@ http {{
             {csrf_origin_header}
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $public_proto;
             proxy_set_header X-Forwarded-Host $public_host;
             {asset_prefix_header}
 
             # Rewrite upstream redirects so they go through the proxy
-            proxy_redirect ~^/(.*) $proxy_redirect_proto://$public_host{effective_path}/$1;
+            proxy_redirect ~^/(.*) $public_proto://$public_host{effective_path}/$1;
 
             proxy_buffering on;
         }}
@@ -1168,7 +1215,7 @@ http {{
             # and a protocol-relative //host/path alike, producing
             # http://host:8099//host/path, which an HTTPS dashboard blocks as mixed
             # content. Only an absolute URL is passed through untouched.
-            landing = "$proxy_redirect_proto://$public_host" + (
+            landing = "$public_proto://$public_host" + (
                 f"{effective_path}{entry_path}" if entry_path else f"{effective_path}/"
             )
             # 302, not 301: the entry point comes from a probe replayed at every start,
@@ -1226,7 +1273,7 @@ http {{
 
         # Absolute for the same reason as the entry-point redirects: HA ingress
         # rewrites anything else into http://$host:8099/...
-        home_redirect = "$proxy_redirect_proto://$public_host" + (
+        home_redirect = "$public_proto://$public_host" + (
             ingress_entry.rstrip('/') + '/' if is_ingress else '/'
         )
         nginx_config += f"""

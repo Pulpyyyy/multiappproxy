@@ -34,14 +34,26 @@ _verify_attempts: dict[str, list[float]] = {}
 _VERIFY_MAX    = 5
 _VERIFY_WINDOW = 60
 
-def _is_rate_limited(ip: str) -> bool:
+# The analyzer makes the addon fetch an address on the user's own network, so it
+# gets its own, tighter budget than password attempts.
+_analyze_attempts: dict[str, list[float]] = {}
+_ANALYZE_MAX    = 10
+_ANALYZE_WINDOW = 60
+# One probe run at a time: a handful of parallel analyses would put the LAN under
+# load for no benefit, since the result is read one at a time anyway.
+_analyze_lock = threading.Lock()
+
+def _is_rate_limited(ip: str, bucket: dict = None, limit: int = _VERIFY_MAX,
+                     window: int = _VERIFY_WINDOW) -> bool:
+    if bucket is None:
+        bucket = _verify_attempts
     now = time.time()
-    attempts = [t for t in _verify_attempts.get(ip, []) if now - t < _VERIFY_WINDOW]
-    if len(attempts) >= _VERIFY_MAX:
-        _verify_attempts[ip] = attempts
+    attempts = [t for t in bucket.get(ip, []) if now - t < window]
+    if len(attempts) >= limit:
+        bucket[ip] = attempts
         return True
     attempts.append(now)
-    _verify_attempts[ip] = attempts
+    bucket[ip] = attempts
     return False
 
 # ── Admin status ──────────────────────────────────────────────────────────────
@@ -175,7 +187,10 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path == '/api/verify-secret':
+        if self.path == '/api/analyze':
+            self._handle_analyze()
+
+        elif self.path == '/api/verify-secret':
             client_ip = self.headers.get('X-Real-IP', self.client_address[0])
             if _is_rate_limited(client_ip):
                 self._send_json(429, {'error': 'Too many attempts'})
@@ -208,6 +223,54 @@ class APIHandler(BaseHTTPRequestHandler):
 
         else:
             self._send_json(404, {'error': 'Not found'})
+
+    def _handle_analyze(self):
+        """Probe a URL and answer with the configuration it would need.
+
+        Admin-gated on purpose: this makes the addon issue a request to any address
+        the caller names, which is reach an administrator already has and nobody
+        else should be handed.
+        """
+        user_id   = self.headers.get('X-Remote-User-Id', '')
+        user_name = self.headers.get('X-Remote-User-Name', '')
+        if not get_admin_status(user_id, user_name):
+            self._send_json(403, {'ok': False, 'error': 'Administrators only.'})
+            return
+
+        client_ip = self.headers.get('X-Real-IP', self.client_address[0])
+        if _is_rate_limited(client_ip, _analyze_attempts, _ANALYZE_MAX, _ANALYZE_WINDOW):
+            self._send_json(429, {'ok': False, 'error':
+                                  'Too many analyses in the last minute. Wait a moment.'})
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        if length > 2048:
+            self._send_json(413, {'ok': False, 'error': 'Payload too large'})
+            return
+        try:
+            body = json.loads(self.rfile.read(length).decode())
+            url  = str(body.get('url', '')).strip()
+        except Exception:
+            self._send_json(400, {'ok': False, 'error': 'Invalid JSON'})
+            return
+
+        if not _analyze_lock.acquire(blocking=False):
+            self._send_json(429, {'ok': False, 'error':
+                                  'An analysis is already running. Give it a few seconds.'})
+            return
+        try:
+            # Imported here rather than at startup: a failure inside the analyzer
+            # must never keep the portal's own API from serving.
+            import analyzer
+            _debug(f'[API] analyze url={url!r}')
+            result = analyzer.analyze(url)
+        except Exception as e:
+            _debug(f'[API] analyze failed: {e!r}\n{traceback.format_exc()}')
+            result = {'ok': False, 'error': f'The analysis stopped unexpectedly: {e}'}
+        finally:
+            _analyze_lock.release()
+
+        self._send_json(200, result)
 
     def _send_json(self, code: int, data: dict, cookies: list[str] | None = None):
         body = json.dumps(data).encode()

@@ -1,3 +1,18 @@
+## 1.4.0
+
+Configuring an app stops being a guess.
+
+### Added
+- **App analyzer** (`🔎 Analyze an app` in the portal, administrators only). Paste a URL and the addon probes it, then answers with a verdict in one sentence, the requests and responses behind that verdict, and a YAML entry to copy. Every generated line carries the reason it is there, so a decision can be argued with rather than trusted. The decisive output is the shape of the links the app publishes: relative (nothing to do), root-absolute (the proxy rewrites them), or carrying the app's own host — the last one **cannot be fixed by any option**, and until now nothing said so. BookStack is that case
+- The analyzer also reads up to three of the app's own scripts, since `sub_filter` never sees a URL built in JavaScript. It reports a service worker registration (which the proxy does not rewrite), a hardcoded WebSocket address, and bundler-baked asset bases. It never reports their absence: each script is read up to 256 KB, so "not found" would only mean "not found yet"
+- `POST /api/analyze`, gated on administrator status, rate limited to 10 per minute per client, and serialised to one probe run at a time
+
+### Fixed
+- **`X-Forwarded-Proto` no longer forwards the ingress hop's scheme.** It was sent as `$scheme`, which is plain `http` on the listener HA ingress talks to, so an app deriving its own absolute URLs from it — as any Laravel app does — built them on `http` and an HTTPS dashboard blocked every one as mixed content. The real browser scheme was already resolved for redirects; it is now used for both, under the clearer name `$public_proto`. A proxy chain that turns the header into `https, http` keeps only its first hop
+- **The runtime URL patch is no longer blocked by a strict CSP.** An app sending `script-src 'nonce-…' 'strict-dynamic'` refused the injected script and said so only in the browser console, leaving the URLs built in JavaScript wrong while the page looked fine. The nonce is now read off the upstream response and carried onto the injected tag, so the app's own policy accepts it and nothing has to be disabled. `hide_csp` stays for policies that break the ingress iframe, which is a different problem. An app that delivers its policy in a `<meta>` tag rather than a header is still out of reach
+
+---
+
 ## 1.3.1
 
 ### Fixed
