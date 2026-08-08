@@ -228,6 +228,12 @@ for), and asset bases baked in by a bundler (which the runtime patch corrects).
 It never reports the absence of any of these: each script is read up to 256 KB, so
 "not found" would mean "not found yet".
 
+The portal, the analyzer and the generated YAML comments follow your browser's
+language, in the same six languages the addon options are available in: English,
+French, German, Spanish, Italian and Portuguese. The evidence is deliberately left
+untranslated, since an HTTP header or a snippet of markup is protocol output
+rather than prose.
+
 `fast_upstream`, `ssl_verify` and `ws_target` stay yours to decide. The first is a
 performance judgement rather than a property of the app, the second is a question
 of trust, and the third needs a port number that no HTTP response reveals.

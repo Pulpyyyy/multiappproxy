@@ -1,3 +1,14 @@
+## 1.4.1
+
+### Added
+- **The portal speaks the same six languages as the options** (English, French, German, Spanish, Italian, Portuguese), picked from the browser. Both the analyzer and the app list were English-only, and `index.html` even declared `lang="fr"` over English text
+- The analyzer sends message identifiers rather than sentences, so one analysis reads in the language of whoever asked for it. The YAML comments are translated too, since the person reading them is the user. Evidence is deliberately left alone: an HTTP header or a snippet of markup is protocol output, and translating it would turn a fact into a paraphrase
+
+### Fixed
+- **The analyzer read the Content-Security-Policy from the wrong response.** It looked at the root, which for many apps is a bare redirect carrying no policy at all, so a strict CSP on the login page went unreported. It now reads the page actually served
+
+---
+
 ## 1.4.0
 
 Configuring an app stops being a guess.

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -173,12 +173,13 @@
         .modal-btn-submit { background: var(--primary-color, #03a9f4); color: #fff; }
         .modal-btn-submit:disabled { opacity: 0.5; cursor: default; }
     </style>
+    <script src="./i18n.js"></script>
 </head>
 <body>
     <div class="container">
-        <div id="loading" class="loading">Loading applications...</div>
-        <div id="error" class="error" style="display: none;">Error</div>
-        <div id="admin-bar" class="admin-bar"><a class="admin-link" href="./analyze">🔎 Analyze an app</a></div>
+        <div id="loading" class="loading"></div>
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="admin-bar" class="admin-bar"><a class="admin-link" href="./analyze" id="t-analyze"></a></div>
         <div id="apps-container"></div>
         <footer>🚀 Multi-App Proxy</footer>
     </div>
@@ -187,16 +188,25 @@
         <div class="modal-card">
             <div class="modal-title" id="modal-app-name"></div>
             <div class="modal-subtitle">Enter the password to access this application.</div>
-            <input type="password" class="modal-input" id="modal-password" placeholder="Password" autocomplete="off">
+            <input type="password" class="modal-input" id="modal-password" autocomplete="off">
             <div class="modal-error" id="modal-error"></div>
             <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" id="modal-cancel">Cancel</button>
-                <button class="modal-btn modal-btn-submit" id="modal-submit">Open</button>
+                <button class="modal-btn modal-btn-cancel" id="modal-cancel"></button>
+                <button class="modal-btn modal-btn-submit" id="modal-submit"></button>
             </div>
         </div>
     </div>
     <div id="debug" class="debug"><div class="debug-line">🔍 Loading...</div></div>
     <script>
+        // Static labels come from the shared catalogue, in the browser's language.
+        document.documentElement.lang = window.MAP_LANG;
+        document.getElementById('loading').textContent = window.mapT('portal.loading');
+        document.getElementById('error').textContent = window.mapT('portal.error');
+        document.getElementById('t-analyze').textContent = '🔎 ' + window.mapT('portal.analyze');
+        document.getElementById('modal-password').placeholder = window.mapT('modal.password');
+        document.getElementById('modal-cancel').textContent = window.mapT('modal.cancel');
+        document.getElementById('modal-submit').textContent = window.mapT('modal.open');
+
         const debugDiv = document.getElementById('debug');
         function log(msg) {
             const line = document.createElement('div');
@@ -261,7 +271,7 @@
                     closeModal();
                     window.location.href = targetUrl;
                 } else {
-                    modalError.textContent = 'Incorrect password.';
+                    modalError.textContent = window.mapT('modal.wrong');
                     modalInput.classList.add('error');
                     modalInput.value = '';
                     setTimeout(() => modalInput.classList.remove('error'), 400);
@@ -269,7 +279,7 @@
                     modalInput.focus();
                 }
             } catch (e) {
-                modalError.textContent = 'Verification error.';
+                modalError.textContent = window.mapT('modal.failed');
                 modalSubmit.disabled = false;
             }
         }

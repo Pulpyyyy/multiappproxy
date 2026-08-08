@@ -543,6 +543,14 @@ http {{
             proxy_read_timeout 10s;
         }
 
+        # String catalogue, shared by both portal pages so there is one list of
+        # supported languages rather than a copy per page.
+        location = /i18n.js {
+            alias /app/i18n.js;
+            default_type application/javascript;
+            add_header Cache-Control "no-cache";
+        }
+
         # Analyzer page. Static, and left ungated on purpose: it shows nothing on
         # its own, and the API it calls refuses anyone who is not an administrator.
         location = /analyze {
