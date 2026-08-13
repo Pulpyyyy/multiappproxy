@@ -439,7 +439,7 @@ http {{
 
     # Logging. The access log is buffered: one write per request is a poor deal on
     # the SD card most Home Assistant boxes run from.
-    access_log /var/log/nginx/access.log buffer=32k flush=5s;
+    access_log /var/log/nginx/access.log combined buffer=32k flush=5s;
     error_log /var/log/nginx/error.log {error_log_level};
 
     # Performance

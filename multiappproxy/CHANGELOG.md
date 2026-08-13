@@ -1,3 +1,10 @@
+## 1.4.3
+
+### Fixed
+- **1.4.2 could not start.** The buffered access log was written as `access_log <path> buffer=32k flush=5s`, and nginx reads the token after the path as the name of a log format, so it refused the configuration with `unknown log format "buffer=32k"` and the addon stopped at boot. The format has to be named: `access_log <path> combined buffer=32k flush=5s`. The local harness that was supposed to catch this rewrote the whole `access_log` directive while adapting paths, so it validated a line that was never shipped; it now swaps the path only, and the buffered directive is verified as generated
+
+---
+
 ## 1.4.2
 
 ### Changed
