@@ -34,6 +34,7 @@
 
       'pill.ready': 'Ready to use',
       'pill.appside': 'Needs a setting in the app',
+      'pill.unknown': 'Could not tell',
 
       'verdict.native.title': 'The app prefixes its own links',
       'verdict.native.text': 'It picked up the prefix we sent and used it. That is the most reliable arrangement: the proxy stops rewriting entirely, and the app keeps its compression.',
@@ -43,6 +44,8 @@
       'verdict.root.text': 'It publishes its links as paths from the site root, which is exactly what the proxy rewrites. Anything else worth setting is already in the snippet.',
       'verdict.relative.title': 'This app is already portable',
       'verdict.relative.text': 'Every link it publishes is relative, so it works under any prefix without the proxy touching a thing.',
+      'verdict.unknown.title': 'Nothing readable came back',
+      'verdict.unknown.text': "The page carried no link the proxy could read, which is not the same as carrying none. Its body may be encoded in a way this probe cannot decode, or the app may build its interface entirely in JavaScript. The entry below is the safe default, and the proxy's usual rewriting applies.",
 
       'tag.urlshape': 'link shape',
       'tag.csp': 'CSP',
@@ -55,6 +58,7 @@
       'finding.absolute': 'Links carry a full scheme and host, not a path.',
       'finding.root': 'Links are paths from the site root, which the proxy rewrites.',
       'finding.relative': 'Every reference is relative, so the prefix takes care of itself.',
+      'finding.norefs': 'No link could be read from the page, so its shape could not be judged. That is not the same as having none.',
       'finding.entry': 'The root sends the browser elsewhere, so the portal links straight there.',
       'finding.csrf': 'Rejects requests whose Origin is foreign, which is what a browser sends through the ingress.',
       'finding.hidecsp': 'Its policy forbids embedding, which the ingress frame needs lifted.',
@@ -65,11 +69,13 @@
       'finding.baked': 'A bundle carries its own address in full. The runtime patch rewrites those as they are used, so this is covered.',
       'finding.publicpath': 'The bundler baked an asset base into the chunk loader, which the runtime patch corrects when a chunk is requested.',
       'finding.ws': 'A WebSocket address is hardcoded rather than built from the page, so it will not follow the proxy.',
+      'finding.wsdynamic': 'It opens a WebSocket whose address it builds at runtime, so nothing in the markup shows where it points. If live updates stay silent through the proxy, this is the place to look.',
 
       'yaml.header.native': '# Reads X-Ingress-Path and prefixes its own markup and redirects.\n# Nothing is rewritten, compression is preserved.',
       'yaml.header.appside': '# This app builds absolute URLs from its own configured base.\n# Set that base (APP_URL, BASE_URL, "external address"... the name\n# varies) to the address the portal shows for this app, then this\n# entry is all the proxy needs.',
       'yaml.header.root': '# Publishes root-absolute links and ignores prefix headers.\n# Default rewriting applies, so nothing has to be chosen.',
       'yaml.header.relative': '# All links are relative, nothing needs rewriting.',
+      'yaml.header.unknown': "# Nothing conclusive could be read from this app's page.\n# The default rewriting applies; adjust it if something loads\n# from the wrong place.",
 
       'yaml.name.host': 'derived from the address, rename it',
       'yaml.name.title': 'read from the page title, rename it if you like',
@@ -84,6 +90,7 @@
 
       'manual.left': '<strong>Left for you:</strong> <code>fast_upstream</code> is a performance call rather than a property of the app, and <code>ws_target</code> only matters if the app serves WebSockets on a different port. Neither can be read off an HTTP response.',
       'manual.ws': '<strong>Worth a look:</strong> the page builds WebSocket URLs (<code>{url}</code>). If live updates stay silent through the proxy, that is where to look, and <code>ws_target</code> is the option.',
+      'manual.wsdynamic': '<strong>Worth a look:</strong> the page opens a WebSocket built at runtime, so its address cannot be read from here. If live updates stay silent through the proxy, <code>ws_target</code> is the option, pointed at whichever port the app serves its socket on.',
       'manual.ssl': 'This upstream is https, so <code>ssl_verify</code> is yours to decide: it defaults to off, which is what a self-signed certificate on your own network needs.',
 
       'page.title': 'Analyze an app',
@@ -135,6 +142,7 @@
 
       'pill.ready': 'Prête à être utilisée',
       'pill.appside': "À régler dans l'application",
+      'pill.unknown': 'Indéterminé',
 
       'verdict.native.title': "L'application préfixe ses propres liens",
       'verdict.native.text': "Elle a repris le préfixe que nous lui avons envoyé. C'est le montage le plus fiable : le proxy ne réécrit plus rien, et l'application conserve sa compression.",
@@ -144,6 +152,8 @@
       'verdict.root.text': "Elle publie ses liens sous forme de chemins depuis la racine, exactement ce que le proxy réécrit. Tout le reste qui méritait un réglage est déjà dans le bloc ci-dessous.",
       'verdict.relative.title': "Cette application est déjà portable",
       'verdict.relative.text': "Tous ses liens sont relatifs : elle fonctionne sous n'importe quel préfixe sans que le proxy touche à quoi que ce soit.",
+      'verdict.unknown.title': "Rien d'exploitable n'est revenu",
+      'verdict.unknown.text': "La page ne contenait aucun lien que le proxy ait pu lire, ce qui n'est pas la même chose que de ne pas en contenir. Son corps est peut-être encodé d'une façon que cette sonde ne sait pas décoder, ou l'application construit toute son interface en JavaScript. L'entrée ci-dessous est le choix prudent, et la réécriture habituelle du proxy s'applique.",
 
       'tag.urlshape': 'forme des liens',
       'tag.csp': 'CSP',
@@ -156,6 +166,7 @@
       'finding.absolute': "Les liens portent un schéma et un hôte complets, pas un chemin.",
       'finding.root': "Les liens sont des chemins depuis la racine, ce que le proxy réécrit.",
       'finding.relative': "Toutes les références sont relatives : le préfixe se règle tout seul.",
+      'finding.norefs': "Aucun lien n'a pu être lu dans la page, sa forme n'a donc pas pu être jugée. Ce n'est pas la même chose que de ne pas en avoir.",
       'finding.entry': "La racine renvoie le navigateur ailleurs, donc le portail y mène directement.",
       'finding.csrf': "Elle rejette les requêtes dont l'Origin est étrangère, ce qu'envoie justement un navigateur passant par l'ingress.",
       'finding.hidecsp': "Sa politique interdit l'inclusion en cadre, ce que l'ingress a besoin de voir levé.",
@@ -166,11 +177,13 @@
       'finding.baked': "Un bundle contient sa propre adresse en entier. Le correctif d'URL les rectifie au moment de leur usage, donc ce cas est couvert.",
       'finding.publicpath': "Le bundler a figé une base d'assets dans le chargeur de chunks, que le correctif d'URL rectifie à la demande d'un chunk.",
       'finding.ws': "Une adresse WebSocket est écrite en dur au lieu d'être construite depuis la page : elle ne suivra pas le proxy.",
+      'finding.wsdynamic': "Elle ouvre un WebSocket dont elle fabrique l'adresse à l'exécution, donc rien dans le balisage ne dit où il pointe. Si les mises à jour en direct restent muettes à travers le proxy, c'est ici qu'il faut regarder.",
 
       'yaml.header.native': "# Lit X-Ingress-Path et préfixe elle-même son balisage et ses redirects.\n# Rien n'est réécrit, la compression est préservée.",
       'yaml.header.appside': "# Cette application construit ses URL absolues depuis une base qu'elle\n# a en configuration. Renseignez cette base (APP_URL, BASE_URL,\n# \"adresse externe\"... le nom varie) avec l'adresse que le portail\n# affiche pour elle, et cette entrée suffira au proxy.",
       'yaml.header.root': "# Publie des liens depuis la racine et ignore les en-têtes de préfixe.\n# La réécriture par défaut s'applique, il n'y a rien à choisir.",
       'yaml.header.relative': "# Tous les liens sont relatifs, il n'y a rien à réécrire.",
+      'yaml.header.unknown': "# Rien de concluant n'a pu être lu sur la page de cette application.\n# La réécriture par défaut s'applique ; ajustez-la si quelque chose\n# se charge depuis le mauvais endroit.",
 
       'yaml.name.host': "déduit de l'adresse, à renommer",
       'yaml.name.title': "lu dans le titre de la page, renommez-le si vous voulez",
@@ -185,6 +198,7 @@
 
       'manual.left': "<strong>À vous de voir :</strong> <code>fast_upstream</code> relève d'un jugement de performance et non d'une propriété de l'application, et <code>ws_target</code> ne sert que si celle-ci expose ses WebSockets sur un autre port. Aucun des deux ne se lit dans une réponse HTTP.",
       'manual.ws': "<strong>À surveiller :</strong> la page construit des URL WebSocket (<code>{url}</code>). Si les mises à jour en direct restent muettes à travers le proxy, c'est là qu'il faut regarder, et <code>ws_target</code> est l'option.",
+      'manual.wsdynamic': "<strong>À surveiller :</strong> la page ouvre un WebSocket dont l'adresse est fabriquée à l'exécution, donc illisible d'ici. Si les mises à jour en direct restent muettes à travers le proxy, <code>ws_target</code> est l'option, pointée vers le port sur lequel l'application sert sa socket.",
       'manual.ssl': "Cet upstream est en https, donc <code>ssl_verify</code> vous revient : il est désactivé par défaut, ce qui convient à un certificat auto-signé sur votre propre réseau.",
 
       'page.title': 'Analyser une application',
@@ -236,6 +250,7 @@
 
       'pill.ready': 'Einsatzbereit',
       'pill.appside': 'Braucht eine Einstellung in der Anwendung',
+      'pill.unknown': 'Nicht feststellbar',
 
       'verdict.native.title': 'Die Anwendung präfixiert ihre Links selbst',
       'verdict.native.text': 'Sie hat das gesendete Präfix übernommen und verwendet. Das ist die zuverlässigste Konstellation: Der Proxy schreibt nichts mehr um, und die Anwendung behält ihre Komprimierung.',
@@ -245,6 +260,8 @@
       'verdict.root.text': 'Sie veröffentlicht ihre Links als Pfade ab der Wurzel, genau das schreibt der Proxy um. Alles Weitere, was eine Einstellung verdient, steht bereits im Block unten.',
       'verdict.relative.title': 'Diese Anwendung ist bereits portabel',
       'verdict.relative.text': 'Alle veröffentlichten Links sind relativ, sie funktioniert unter jedem Präfix, ohne dass der Proxy etwas anfasst.',
+      'verdict.unknown.title': 'Es kam nichts Auswertbares zurück',
+      'verdict.unknown.text': 'Die Seite enthielt keinen Link, den der Proxy lesen konnte, was nicht dasselbe ist wie gar keinen zu enthalten. Ihr Inhalt ist möglicherweise so kodiert, dass diese Sonde ihn nicht dekodieren kann, oder die Anwendung baut ihre Oberfläche vollständig in JavaScript auf. Der Eintrag unten ist die sichere Voreinstellung, und das übliche Umschreiben greift.',
 
       'tag.urlshape': 'Form der Links',
       'tag.csp': 'CSP',
@@ -257,6 +274,7 @@
       'finding.absolute': 'Die Links tragen ein vollständiges Schema samt Host, keinen Pfad.',
       'finding.root': 'Die Links sind Pfade ab der Wurzel, die der Proxy umschreibt.',
       'finding.relative': 'Alle Verweise sind relativ, das Präfix erledigt sich von selbst.',
+      'finding.norefs': 'Aus der Seite ließ sich kein Link lesen, ihre Form konnte daher nicht beurteilt werden. Das ist nicht dasselbe wie keine zu haben.',
       'finding.entry': 'Die Wurzel schickt den Browser woandershin, deshalb verlinkt das Portal direkt dorthin.',
       'finding.csrf': 'Lehnt Anfragen mit fremdem Origin ab, und genau den sendet ein Browser über den Ingress.',
       'finding.hidecsp': 'Ihre Richtlinie verbietet die Einbettung, die der Ingress-Frame aufgehoben braucht.',
@@ -267,11 +285,13 @@
       'finding.baked': 'Ein Bundle enthält die eigene Adresse vollständig. Der URL-Patch korrigiert diese bei der Verwendung, dieser Fall ist also abgedeckt.',
       'finding.publicpath': 'Der Bundler hat eine Asset-Basis im Chunk-Loader festgeschrieben, die der URL-Patch beim Anfordern eines Chunks korrigiert.',
       'finding.ws': 'Eine WebSocket-Adresse ist fest verdrahtet statt aus der Seite gebildet, sie folgt dem Proxy also nicht.',
+      'finding.wsdynamic': 'Sie öffnet einen WebSocket, dessen Adresse sie zur Laufzeit bildet, sodass im Markup nicht steht, wohin er zeigt. Bleiben Live-Aktualisierungen über den Proxy stumm, ist hier nachzusehen.',
 
       'yaml.header.native': '# Liest X-Ingress-Path und präfixiert Markup und Redirects selbst.\n# Es wird nichts umgeschrieben, die Komprimierung bleibt erhalten.',
       'yaml.header.appside': '# Diese Anwendung bildet absolute URLs aus einer selbst konfigurierten\n# Basis. Tragen Sie dort (APP_URL, BASE_URL, "externe Adresse"... der\n# Name variiert) die Adresse ein, die das Portal für sie anzeigt, dann\n# genügt dem Proxy dieser Eintrag.',
       'yaml.header.root': '# Veröffentlicht Links ab der Wurzel und ignoriert Präfix-Header.\n# Das Umschreiben greift standardmäßig, es ist nichts zu wählen.',
       'yaml.header.relative': '# Alle Links sind relativ, es ist nichts umzuschreiben.',
+      'yaml.header.unknown': '# Aus der Seite dieser Anwendung ließ sich nichts Eindeutiges lesen.\n# Das übliche Umschreiben greift; passen Sie es an, falls etwas von\n# der falschen Stelle geladen wird.',
 
       'yaml.name.host': 'aus der Adresse abgeleitet, bitte umbenennen',
       'yaml.name.title': 'aus dem Seitentitel gelesen, nach Belieben umbenennen',
@@ -286,6 +306,7 @@
 
       'manual.left': '<strong>Bleibt Ihnen überlassen:</strong> <code>fast_upstream</code> ist eine Performance-Abwägung und keine Eigenschaft der Anwendung, und <code>ws_target</code> zählt nur, wenn sie WebSockets auf einem anderen Port bereitstellt. Beides lässt sich aus keiner HTTP-Antwort ablesen.',
       'manual.ws': '<strong>Im Auge behalten:</strong> Die Seite bildet WebSocket-URLs (<code>{url}</code>). Bleiben Live-Aktualisierungen über den Proxy stumm, ist das die Stelle, und <code>ws_target</code> ist die Option.',
+      'manual.wsdynamic': '<strong>Im Auge behalten:</strong> Die Seite öffnet einen WebSocket, dessen Adresse zur Laufzeit entsteht und von hier aus nicht ablesbar ist. Bleiben Live-Aktualisierungen über den Proxy stumm, ist <code>ws_target</code> die Option, gerichtet auf den Port, auf dem die Anwendung ihren Socket bereitstellt.',
       'manual.ssl': 'Dieser Upstream läuft über https, <code>ssl_verify</code> ist also Ihre Entscheidung: Standardmäßig aus, was zu einem selbstsignierten Zertifikat im eigenen Netz passt.',
 
       'page.title': 'Anwendung analysieren',
@@ -337,6 +358,7 @@
 
       'pill.ready': 'Lista para usar',
       'pill.appside': 'Requiere un ajuste en la aplicación',
+      'pill.unknown': 'No se pudo determinar',
 
       'verdict.native.title': 'La aplicación prefija sus propios enlaces',
       'verdict.native.text': 'Ha recogido el prefijo que le enviamos y lo ha usado. Es el montaje más fiable: el proxy deja de reescribir por completo y la aplicación conserva su compresión.',
@@ -346,6 +368,8 @@
       'verdict.root.text': 'Publica sus enlaces como rutas desde la raíz, que es justo lo que el proxy reescribe. Todo lo demás que merecía un ajuste ya está en el bloque de abajo.',
       'verdict.relative.title': 'Esta aplicación ya es portable',
       'verdict.relative.text': 'Todos sus enlaces son relativos, así que funciona bajo cualquier prefijo sin que el proxy toque nada.',
+      'verdict.unknown.title': 'No volvió nada aprovechable',
+      'verdict.unknown.text': 'La página no traía ningún enlace que el proxy pudiera leer, que no es lo mismo que no traer ninguno. Puede que su cuerpo esté codificado de una forma que esta sonda no sabe descodificar, o que la aplicación construya toda su interfaz en JavaScript. La entrada de abajo es la opción prudente, y se aplica la reescritura habitual del proxy.',
 
       'tag.urlshape': 'forma de los enlaces',
       'tag.csp': 'CSP',
@@ -358,6 +382,7 @@
       'finding.absolute': 'Los enlaces llevan esquema y host completos, no una ruta.',
       'finding.root': 'Los enlaces son rutas desde la raíz, que es lo que el proxy reescribe.',
       'finding.relative': 'Todas las referencias son relativas, el prefijo se resuelve solo.',
+      'finding.norefs': 'No se pudo leer ningún enlace de la página, así que no se pudo juzgar su forma. Eso no es lo mismo que no tener ninguno.',
       'finding.entry': 'La raíz manda el navegador a otro sitio, así que el portal enlaza directamente allí.',
       'finding.csrf': 'Rechaza las peticiones con Origin ajeno, que es justo el que envía un navegador a través del ingress.',
       'finding.hidecsp': 'Su política prohíbe la inclusión en un marco, que el ingress necesita levantada.',
@@ -368,11 +393,13 @@
       'finding.baked': 'Un paquete lleva su propia dirección completa. El parche de URL las corrige al usarlas, así que este caso está cubierto.',
       'finding.publicpath': 'El empaquetador fijó una base de recursos en el cargador de fragmentos, que el parche de URL corrige al pedir un fragmento.',
       'finding.ws': 'Una dirección WebSocket está escrita a mano en lugar de construirse desde la página, así que no seguirá al proxy.',
+      'finding.wsdynamic': 'Abre un WebSocket cuya dirección construye en tiempo de ejecución, así que nada en el marcado dice adónde apunta. Si las actualizaciones en vivo se quedan mudas a través del proxy, aquí es donde hay que mirar.',
 
       'yaml.header.native': '# Lee X-Ingress-Path y prefija ella misma su marcado y sus redirecciones.\n# No se reescribe nada, se conserva la compresión.',
       'yaml.header.appside': '# Esta aplicación construye URLs absolutas a partir de una base que\n# tiene configurada. Ponga en esa base (APP_URL, BASE_URL, "dirección\n# externa"... el nombre varía) la dirección que el portal muestra para\n# ella, y al proxy le bastará con esta entrada.',
       'yaml.header.root': '# Publica enlaces desde la raíz e ignora las cabeceras de prefijo.\n# Se aplica la reescritura por defecto, no hay nada que elegir.',
       'yaml.header.relative': '# Todos los enlaces son relativos, no hay nada que reescribir.',
+      'yaml.header.unknown': '# No se pudo leer nada concluyente de la página de esta aplicación.\n# Se aplica la reescritura por defecto; ajústela si algo se carga\n# desde el sitio equivocado.',
 
       'yaml.name.host': 'deducido de la dirección, cámbielo',
       'yaml.name.title': 'leído del título de la página, cámbielo si quiere',
@@ -387,6 +414,7 @@
 
       'manual.left': '<strong>Queda de su parte:</strong> <code>fast_upstream</code> es un juicio de rendimiento y no una propiedad de la aplicación, y <code>ws_target</code> solo importa si sirve WebSockets en otro puerto. Ninguno de los dos se lee en una respuesta HTTP.',
       'manual.ws': '<strong>Merece un vistazo:</strong> la página construye URLs WebSocket (<code>{url}</code>). Si las actualizaciones en vivo se quedan mudas a través del proxy, ahí es donde mirar, y <code>ws_target</code> es la opción.',
+      'manual.wsdynamic': '<strong>Merece un vistazo:</strong> la página abre un WebSocket cuya dirección se construye en tiempo de ejecución, de modo que no se puede leer desde aquí. Si las actualizaciones en vivo se quedan mudas a través del proxy, <code>ws_target</code> es la opción, apuntada al puerto en el que la aplicación sirve su socket.',
       'manual.ssl': 'Este upstream es https, así que <code>ssl_verify</code> es cosa suya: viene desactivado, que es lo que necesita un certificado autofirmado en su propia red.',
 
       'page.title': 'Analizar una aplicación',
@@ -438,6 +466,7 @@
 
       'pill.ready': "Pronta all'uso",
       'pill.appside': "Richiede un'impostazione nell'applicazione",
+      'pill.unknown': 'Non determinabile',
 
       'verdict.native.title': "L'applicazione prefissa i propri link",
       'verdict.native.text': "Ha raccolto il prefisso che le abbiamo inviato e lo ha usato. È la configurazione più affidabile: il proxy smette del tutto di riscrivere e l'applicazione conserva la sua compressione.",
@@ -447,6 +476,8 @@
       'verdict.root.text': "Pubblica i link come percorsi dalla radice, esattamente ciò che il proxy riscrive. Tutto il resto che meritava un'impostazione è già nel blocco qui sotto.",
       'verdict.relative.title': 'Questa applicazione è già portabile',
       'verdict.relative.text': 'Tutti i link che pubblica sono relativi, quindi funziona sotto qualsiasi prefisso senza che il proxy tocchi nulla.',
+      'verdict.unknown.title': 'Non è tornato nulla di utilizzabile',
+      'verdict.unknown.text': "La pagina non conteneva alcun link che il proxy potesse leggere, il che non equivale a non contenerne. Il suo corpo potrebbe essere codificato in un modo che questa sonda non sa decodificare, oppure l'applicazione costruisce tutta la sua interfaccia in JavaScript. La voce qui sotto è la scelta prudente, e si applica la consueta riscrittura del proxy.",
 
       'tag.urlshape': 'forma dei link',
       'tag.csp': 'CSP',
@@ -459,6 +490,7 @@
       'finding.absolute': 'I link portano schema e host completi, non un percorso.',
       'finding.root': 'I link sono percorsi dalla radice, quelli che il proxy riscrive.',
       'finding.relative': 'Tutti i riferimenti sono relativi, il prefisso si risolve da sé.',
+      'finding.norefs': 'Nessun link è stato leggibile nella pagina, quindi la sua forma non è stata giudicata. Non è la stessa cosa che non averne.',
       'finding.entry': "La radice manda il browser altrove, quindi il portale collega direttamente là.",
       'finding.csrf': "Rifiuta le richieste con Origin estraneo, che è proprio quello inviato da un browser attraverso l'ingress.",
       'finding.hidecsp': "La sua policy vieta l'inclusione in un frame, che l'ingress ha bisogno di veder rimossa.",
@@ -469,11 +501,13 @@
       'finding.baked': 'Un bundle contiene per intero il proprio indirizzo. La correzione degli URL li sistema al momento dell\'uso, quindi il caso è coperto.',
       'finding.publicpath': 'Il bundler ha fissato una base degli asset nel caricatore dei chunk, che la correzione degli URL sistema alla richiesta di un chunk.',
       'finding.ws': 'Un indirizzo WebSocket è scritto a mano invece di essere costruito dalla pagina, quindi non seguirà il proxy.',
+      'finding.wsdynamic': "Apre un WebSocket il cui indirizzo costruisce a runtime, quindi nel markup non c'è nulla che dica dove punta. Se gli aggiornamenti in tempo reale restano muti attraverso il proxy, è qui che bisogna guardare.",
 
       'yaml.header.native': '# Legge X-Ingress-Path e prefissa da sé markup e redirect.\n# Non viene riscritto nulla, la compressione è preservata.',
       'yaml.header.appside': '# Questa applicazione costruisce URL assolute da una base che ha in\n# configurazione. Imposta quella base (APP_URL, BASE_URL, "indirizzo\n# esterno"... il nome varia) sull\'indirizzo che il portale mostra per\n# lei, e al proxy basterà questa voce.',
       'yaml.header.root': '# Pubblica link dalla radice e ignora gli header di prefisso.\n# Si applica la riscrittura predefinita, non c\'è nulla da scegliere.',
       'yaml.header.relative': '# Tutti i link sono relativi, non c\'è nulla da riscrivere.',
+      'yaml.header.unknown': '# Dalla pagina di questa applicazione non si è potuto leggere nulla\n# di conclusivo. Si applica la riscrittura predefinita; correggila se\n# qualcosa viene caricato dal posto sbagliato.',
 
       'yaml.name.host': "dedotto dall'indirizzo, da rinominare",
       'yaml.name.title': 'letto dal titolo della pagina, rinominalo se vuoi',
@@ -488,6 +522,7 @@
 
       'manual.left': '<strong>Resta a te:</strong> <code>fast_upstream</code> è un giudizio di prestazioni, non una proprietà dell\'applicazione, e <code>ws_target</code> conta solo se questa espone i WebSocket su un\'altra porta. Nessuno dei due si legge in una risposta HTTP.',
       'manual.ws': '<strong>Da tenere d\'occhio:</strong> la pagina costruisce URL WebSocket (<code>{url}</code>). Se gli aggiornamenti in tempo reale restano muti attraverso il proxy, è lì che guardare, e <code>ws_target</code> è l\'opzione.',
+      'manual.wsdynamic': "<strong>Da tenere d'occhio:</strong> la pagina apre un WebSocket il cui indirizzo nasce a runtime e non è leggibile da qui. Se gli aggiornamenti in tempo reale restano muti attraverso il proxy, <code>ws_target</code> è l'opzione, puntata sulla porta su cui l'applicazione espone il suo socket.",
       'manual.ssl': 'Questo upstream è in https, quindi <code>ssl_verify</code> spetta a te: è disattivato per impostazione predefinita, il che va bene per un certificato autofirmato sulla tua rete.',
 
       'page.title': "Analizza un'applicazione",
@@ -539,6 +574,7 @@
 
       'pill.ready': 'Pronta a usar',
       'pill.appside': 'Precisa de uma definição na aplicação',
+      'pill.unknown': 'Não foi possível determinar',
 
       'verdict.native.title': 'A aplicação prefixa as suas próprias ligações',
       'verdict.native.text': 'Recolheu o prefixo que lhe enviámos e usou-o. É a montagem mais fiável: o proxy deixa de reescrever por completo e a aplicação mantém a sua compressão.',
@@ -548,6 +584,8 @@
       'verdict.root.text': 'Publica as ligações como caminhos a partir da raiz, exatamente o que o proxy reescreve. Tudo o resto que merecia uma definição já está no bloco abaixo.',
       'verdict.relative.title': 'Esta aplicação já é portável',
       'verdict.relative.text': 'Todas as ligações que publica são relativas, por isso funciona sob qualquer prefixo sem o proxy tocar em nada.',
+      'verdict.unknown.title': 'Não voltou nada aproveitável',
+      'verdict.unknown.text': 'A página não trazia qualquer ligação que o proxy conseguisse ler, o que não é o mesmo que não trazer nenhuma. O seu corpo pode estar codificado de uma forma que esta sonda não sabe descodificar, ou a aplicação constrói toda a sua interface em JavaScript. A entrada abaixo é a escolha prudente, e aplica-se a reescrita habitual do proxy.',
 
       'tag.urlshape': 'forma das ligações',
       'tag.csp': 'CSP',
@@ -560,6 +598,7 @@
       'finding.absolute': 'As ligações trazem esquema e host completos, não um caminho.',
       'finding.root': 'As ligações são caminhos a partir da raiz, que é o que o proxy reescreve.',
       'finding.relative': 'Todas as referências são relativas, o prefixo resolve-se sozinho.',
+      'finding.norefs': 'Não foi possível ler qualquer ligação na página, pelo que a sua forma não pôde ser avaliada. Isso não é o mesmo que não ter nenhuma.',
       'finding.entry': 'A raiz manda o navegador para outro sítio, por isso o portal liga diretamente para lá.',
       'finding.csrf': 'Rejeita pedidos com Origin estranho, que é precisamente o que um navegador envia através do ingress.',
       'finding.hidecsp': 'A sua política proíbe a inclusão numa frame, que o ingress precisa de ver levantada.',
@@ -570,11 +609,13 @@
       'finding.baked': 'Um pacote contém o seu próprio endereço por inteiro. A correção de URLs trata deles no momento do uso, por isso este caso está coberto.',
       'finding.publicpath': 'O empacotador fixou uma base de recursos no carregador de chunks, que a correção de URLs corrige ao pedir um chunk.',
       'finding.ws': 'Um endereço WebSocket está escrito à mão em vez de construído a partir da página, por isso não seguirá o proxy.',
+      'finding.wsdynamic': 'Abre um WebSocket cujo endereço constrói em tempo de execução, pelo que nada na marcação diz para onde aponta. Se as atualizações em direto ficarem mudas através do proxy, é aqui que deve olhar.',
 
       'yaml.header.native': '# Lê X-Ingress-Path e prefixa ela própria a marcação e os redirecionamentos.\n# Nada é reescrito, a compressão é preservada.',
       'yaml.header.appside': '# Esta aplicação constrói URLs absolutos a partir de uma base que tem\n# na configuração. Indique nessa base (APP_URL, BASE_URL, "endereço\n# externo"... o nome varia) o endereço que o portal mostra para ela, e\n# ao proxy bastará esta entrada.',
       'yaml.header.root': '# Publica ligações a partir da raiz e ignora cabeçalhos de prefixo.\n# Aplica-se a reescrita por omissão, não há nada a escolher.',
       'yaml.header.relative': '# Todas as ligações são relativas, não há nada a reescrever.',
+      'yaml.header.unknown': '# Não foi possível ler nada de conclusivo na página desta aplicação.\n# Aplica-se a reescrita por omissão; ajuste-a se algo for carregado\n# do sítio errado.',
 
       'yaml.name.host': 'deduzido do endereço, mude-o',
       'yaml.name.title': 'lido do título da página, mude-o se quiser',
@@ -589,6 +630,7 @@
 
       'manual.left': '<strong>Fica ao seu critério:</strong> <code>fast_upstream</code> é um juízo de desempenho e não uma propriedade da aplicação, e <code>ws_target</code> só importa se ela servir WebSockets noutra porta. Nenhum dos dois se lê numa resposta HTTP.',
       'manual.ws': '<strong>A vigiar:</strong> a página constrói URLs WebSocket (<code>{url}</code>). Se as atualizações em direto ficarem mudas através do proxy, é aí que deve olhar, e <code>ws_target</code> é a opção.',
+      'manual.wsdynamic': '<strong>A vigiar:</strong> a página abre um WebSocket cujo endereço é construído em tempo de execução e não se consegue ler daqui. Se as atualizações em direto ficarem mudas através do proxy, <code>ws_target</code> é a opção, apontada para a porta onde a aplicação serve o seu socket.',
       'manual.ssl': 'Este upstream é https, por isso <code>ssl_verify</code> é decisão sua: vem desativado, que é o que um certificado autoassinado na sua própria rede precisa.',
 
       'page.title': 'Analisar uma aplicação',

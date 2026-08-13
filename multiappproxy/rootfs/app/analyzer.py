@@ -46,9 +46,6 @@ def _m(key, **params):
     return {'id': key, 'params': params} if params else {'id': key}
 
 
-# Stands in for evidence when a page carries no asset reference at all.
-_NO_REFS = '(no asset references in the markup)'
-
 _SENTINEL = '/__multiappproxy_probe__'
 
 # Enough to judge the shape of a page without reporting a lone stray link.
@@ -97,6 +94,11 @@ def _classify_refs(refs: list, upstream_netloc: str) -> dict:
 # outside what it covers.
 _SW_RE = re.compile(r'serviceWorker\s*\.\s*register\s*\(\s*["\']([^"\']+)["\']', re.I)
 _WS_LITERAL_RE = re.compile(r'["\'](wss?://[^"\'\s]+)["\']', re.I)
+# An app that assembles its socket address from location.host and a port leaves no
+# literal to find, which is how ESPSomfy-RTS does it. Catching the constructor
+# itself is the only way to say anything at all about such a socket, and a
+# WebSocket that never connects is one of the better disguises for slowness.
+_WS_CTOR_RE = re.compile(r'new\s+WebSocket\s*\(', re.I)
 _PUBLIC_PATH_RE = re.compile(r'__webpack_public_path__\s*=\s*["\']([^"\']*)["\']')
 # Scripts are capped hard: this is a diagnostic, not a crawler.
 _MAX_SCRIPTS = 3
@@ -127,7 +129,7 @@ def _scan_scripts(urls: list, netloc: str) -> tuple:
     truncated read would be a guess dressed as a fact.
     """
     findings, read = [], 0
-    baked, sw, ws_literals, public_path = [], None, [], None
+    baked, sw, ws_literals, public_path, ws_built = [], None, [], None, None
 
     for url in urls:
         got = _probe_get(url)
@@ -145,6 +147,13 @@ def _scan_scripts(urls: list, netloc: str) -> tuple:
             # what lands here is hardcoded, which is the case worth reporting.
             if host and host not in ws_literals:
                 ws_literals.append(literal)
+        if not ws_built:
+            match = _WS_CTOR_RE.search(js)
+            if match:
+                # The surrounding code is the evidence: it shows how the address is
+                # assembled, which is what the reader needs in order to act.
+                start = max(0, match.start() - 130)
+                ws_built = (" ".join(js[start:match.end() + 60].split()), url)
         if not public_path:
             match = _PUBLIC_PATH_RE.search(js)
             if match:
@@ -173,7 +182,12 @@ def _scan_scripts(urls: list, netloc: str) -> tuple:
             'tag': 'ws_target', 'value': None, 'claim': _m('finding.ws'),
             'evidence': "\n".join(ws_literals[:3]),
         })
-    return findings, read, ws_literals
+    elif ws_built:
+        findings.append({
+            'tag': 'ws_target', 'value': None, 'claim': _m('finding.wsdynamic'),
+            'evidence': f'{ws_built[1]}\n...{ws_built[0]}...',
+        })
+    return findings, read, ws_literals, ws_built
 
 
 _NAME_SAFE_RE = re.compile(r'[^A-Za-z0-9]+')
@@ -250,7 +264,7 @@ def analyze(url: str) -> dict:
                   'detail': _m('probe.shapes.detail', absolute=len(shapes['absolute_own']),
                                root=len(shapes['root']), relative=len(shapes['relative']))})
 
-    script_findings, scripts_read, ws_in_script = _scan_scripts(
+    script_findings, scripts_read, ws_in_script, ws_built = _scan_scripts(
         _script_urls(refs, page_url, netloc), netloc)
     if scripts_read:
         probe.append({'step': _m('probe.scripts', count=scripts_read), 'ok': True,
@@ -292,11 +306,22 @@ def analyze(url: str) -> dict:
             'tag': _m('tag.urlshape'), 'value': None, 'claim': _m('finding.root'),
             'evidence': "\n".join(shapes['root'][:3]),
         })
-    else:
+    elif shapes['relative']:
         tone, kind = 'ok', 'relative'
         findings.append({
             'tag': _m('tag.urlshape'), 'value': None, 'claim': _m('finding.relative'),
-            'evidence': "\n".join(shapes['relative'][:3]) or _NO_REFS,
+            'evidence': "\n".join(shapes['relative'][:3]),
+        })
+    else:
+        # No reference at all is not evidence of portability. A body that could not
+        # be read — an encoding with no decoder here, a page built entirely in
+        # JavaScript — looks exactly like a page with nothing to rewrite, and
+        # announcing "already portable" from that would be a guess wearing a verdict.
+        tone, kind = 'warn', 'unknown'
+        findings.append({
+            'tag': _m('tag.urlshape'), 'value': None, 'claim': _m('finding.norefs'),
+            'evidence': f'{len(page_body)} characters read, no src, action or '
+                        f'stylesheet reference among them',
         })
 
     # ── Independent options ───────────────────────────────────────────────────
@@ -337,6 +362,8 @@ def analyze(url: str) -> dict:
     ws_seen = ws_urls + ws_in_script
     if ws_seen:
         manual.append(_m('manual.ws', url=ws_seen[0][:60]))
+    elif ws_built:
+        manual.append(_m('manual.wsdynamic'))
     manual.append(_m('manual.left'))
     if parsed.scheme == 'https':
         manual.append(_m('manual.ssl'))
@@ -346,7 +373,9 @@ def analyze(url: str) -> dict:
         'url': url,
         'verdict': {
             'tone': tone,
-            'pill': _m('pill.appside' if kind == 'appside' else 'pill.ready'),
+            'pill': _m('pill.appside' if kind == 'appside'
+                       else 'pill.unknown' if kind == 'unknown'
+                       else 'pill.ready'),
             'title': _m('verdict.' + kind + '.title'),
             'text': _m('verdict.' + kind + '.text', name=name),
         },

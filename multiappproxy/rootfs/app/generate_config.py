@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import yaml
+import gzip
 import json
 import os
 import re
+import socket
 import ssl
 import sys
+import zlib
 import unicodedata
 import bcrypt
 from urllib.parse import quote, urlparse
@@ -113,6 +116,37 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _PROBE_BODY_MAX = 256 * 1024
 
 
+def _decode_body(headers, raw: bytes) -> str:
+    """Text of a probe response, whatever the upstream chose to encode it with.
+
+    Asking for `identity` is not enough: an embedded firmware often serves one
+    pre-compressed file and answers gzip regardless of what was requested. Reading
+    those bytes as text yields noise in which no markup can be found, and a caller
+    that concludes anything from that emptiness concludes wrongly.
+    """
+    encoding = (headers.get('Content-Encoding', '') or '').strip().lower()
+    if encoding in ('gzip', 'x-gzip'):
+        try:
+            raw = gzip.decompress(raw)
+        except Exception:
+            # A truncated body is expected — the read is capped — so decompress
+            # what can be decompressed and keep it.
+            try:
+                raw = zlib.decompressobj(zlib.MAX_WBITS | 16).decompress(raw)
+            except Exception:
+                return ''
+    elif encoding == 'deflate':
+        try:
+            raw = zlib.decompressobj().decompress(raw)
+        except Exception:
+            return ''
+    elif encoding:
+        # br and anything else: no decoder here, and noise would be worse than
+        # nothing since it reads as a body with no markup in it.
+        return ''
+    return raw[:_PROBE_BODY_MAX].decode('utf-8', 'replace')
+
+
 def _probe_get(url, extra_headers=None):
     """GET url without following redirects.
 
@@ -120,7 +154,8 @@ def _probe_get(url, extra_headers=None):
     The body is capped: it is only read to look for a sentinel, never kept.
     Never raises: detection is best-effort and must never block startup.
     """
-    headers = {'User-Agent': 'multiappproxy/probe', 'Accept': '*/*'}
+    headers = {'User-Agent': 'multiappproxy/probe', 'Accept': '*/*',
+               'Accept-Encoding': 'identity'}
     if extra_headers:
         headers.update(extra_headers)
 
@@ -133,11 +168,11 @@ def _probe_get(url, extra_headers=None):
     try:
         opener = urllib.request.build_opener(*handlers)
         with opener.open(urllib.request.Request(url, headers=headers), timeout=_PROBE_TIMEOUT) as resp:
-            return resp.status, resp.headers, resp.read(_PROBE_BODY_MAX).decode('utf-8', 'replace')
+            return resp.status, resp.headers, _decode_body(resp.headers, resp.read(_PROBE_BODY_MAX))
     except urllib.error.HTTPError as exc:
         # 3xx (redirect not followed) and 4xx both carry the headers we want
         try:
-            body = exc.read(_PROBE_BODY_MAX).decode('utf-8', 'replace')
+            body = _decode_body(exc.headers, exc.read(_PROBE_BODY_MAX))
         except Exception:
             body = ''
         return exc.code, exc.headers, body
@@ -383,7 +418,11 @@ def generate_nginx_config(config_file='/app/config.yml'):
         print("[DEBUG] Generating Nginx config template...")
 
         # Log level based on debug mode
-        error_log_level = "debug" if debug_mode else "warn"
+        # nginx at debug level writes kilobytes per request, and the [DEBUG] lines
+        # this addon's own logs carry come from Python, not from nginx. info gives
+        # the connection-level detail worth having without turning the log into the
+        # slowest part of a page load.
+        error_log_level = "info" if debug_mode else "warn"
 
         nginx_config = f"""
 events {{
@@ -398,8 +437,9 @@ http {{
     resolver 172.30.32.3 valid=10s;
     resolver_timeout 5s;
 
-    # Logging
-    access_log /var/log/nginx/access.log;
+    # Logging. The access log is buffered: one write per request is a poor deal on
+    # the SD card most Home Assistant boxes run from.
+    access_log /var/log/nginx/access.log buffer=32k flush=5s;
     error_log /var/log/nginx/error.log {error_log_level};
 
     # Performance
@@ -421,7 +461,13 @@ http {{
         ''      close;
     }}
 
-    # Gzip compression
+    # Compression is deliberately left off for proxied responses (gzip_proxied
+    # defaults to off). Home Assistant's ingress decompresses whatever it receives
+    # and re-encodes it for the browser on its own, so compressing here would only
+    # cover the local hop to the ingress and would cost the box a compress and a
+    # decompress for nothing. Measured through the ingress on an unmodified 1.4.1:
+    # Zigbee2MQTT 2789 -> 1992, Z-Wave JS UI 3521 -> 2496, ESPSomfy 114516 -> 27360,
+    # all delivered as deflate without this addon compressing anything.
     gzip on;
     gzip_vary on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
@@ -1262,7 +1308,23 @@ http {{
             proxy_ssl_server_name on;"""
                 else:
                     ws_ssl_block = ""
-                print(f"[DEBUG] ws_target for {name}: {path}/ws → {ws_url}")
+                # An app that checks the request origin checks it on the socket too,
+                # and it is one session across both. Leaving the browser's own Origin
+                # here while csrf_fix rewrites it on every other location shows the
+                # app two different origins for one session. Recomputed rather than
+                # borrowed: csrf_origin_header exists only in the standard-proxy
+                # branch, and an app can reach here from any of the three.
+                if app.get('csrf_fix', False):
+                    _csrf = urlparse(url)
+                    _origin = f"{_csrf.scheme}://{_csrf.netloc}"
+                    ws_origin_header = (
+                        f'proxy_set_header Origin "{_origin}";\n'
+                        f'            proxy_set_header Referer "{_origin}/";'
+                    )
+                else:
+                    ws_origin_header = ""
+                print(f"[DEBUG] ws_target for {name}: {path}/ws → {ws_url}"
+                      + (" (csrf_fix origin applied)" if ws_origin_header else ""))
                 nginx_config += f"""
         # Dedicated WebSocket upstream for {name}
         location = {path}/ws {{{auth_request_block}
@@ -1273,6 +1335,7 @@ http {{
             proxy_set_header Connection $connection_upgrade;
             proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
             proxy_set_header Host {ws_host};
+            {ws_origin_header}
             proxy_buffering off;
             proxy_read_timeout 86400;
             proxy_send_timeout 86400;

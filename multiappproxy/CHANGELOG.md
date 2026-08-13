@@ -1,3 +1,19 @@
+## 1.4.2
+
+### Changed
+- **`debug: true` no longer puts nginx in `debug` log level**, which writes kilobytes per request onto the SD card most Home Assistant boxes run from. It logs at `info` now; the `[DEBUG]` and `[AUTO]` lines the option exists for come from the addon's own Python, not from nginx
+- The access log is buffered (`buffer=32k flush=5s`) rather than written once per request
+
+### Added
+- **The analyzer reports a WebSocket an app builds at runtime**, not only one written as a literal. An app that assembles its address from `location.host` and a port leaves nothing to search for, which is exactly how ESPSomfy-RTS does it, and a socket that never connects through the proxy is one of the better disguises for slowness. The surrounding code is shown as the evidence, so the port it reaches for is visible and `ws_target` can be pointed at it
+
+### Fixed
+- **Probes could not read a compressed response.** An embedded firmware often serves one pre-compressed file and answers `gzip` whatever was asked, so the probe was reading compressed bytes as text. Everything downstream then looked at noise: autodetection found no sentinel, and the analyzer found no link at all in a page that has thirty-nine, concluding out loud that the app was "already portable". Probes now ask for `identity` and decompress anyway when the upstream ignores it. Measured on an ESPSomfy-RTS: 21 112 characters of noise before, 114 462 characters of markup after
+- **The analyzer no longer draws a verdict from an empty page.** Finding no reference is not evidence of portability: it also happens when the body cannot be decoded, or when the interface is built entirely in JavaScript. That case now has its own verdict which says so, rather than borrowing the reassuring one
+- **`csrf_fix` now covers the WebSocket too.** It rewrote `Origin` and `Referer` on every HTTP location and left the socket alone, so an app that checks the request origin — the only reason to turn the option on — was shown two different origins for one session. This one ships to be judged in place: the only client able to get a `join` frame accepted by ESPSomfy-RTS is a real browser session, so a test harness could not settle it
+
+---
+
 ## 1.4.1
 
 ### Added
