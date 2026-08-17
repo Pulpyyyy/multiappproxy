@@ -18,6 +18,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Check out the live branch tip, not the frozen run SHA, so re-runs
+          # see commits pushed by earlier attempts and `git pull` works.
+          ref: ${{ github.ref }}
 
       - name: Get latest base image version
         id: latest
@@ -50,12 +53,23 @@ jobs:
           if [ "$LATEST" = "$CURRENT" ]; then
             echo "✅ Base image already up to date ($CURRENT)"
             echo "CHANGES=false" >> $GITHUB_ENV
-          else
-            sed -i "s|ghcr\.io/hassio-addons/base/\([^:]*\):[^\"]*|ghcr.io/hassio-addons/base/\1:$LATEST|g" multiappproxy/build.yaml
-            echo "🔄 Base version: $CURRENT → $LATEST"
-            echo "- **hassio-addons/addon-base** → [$LATEST](https://github.com/hassio-addons/addon-base/releases/tag/$TAG)" >> multiappproxy/bot_changelog.md
-            echo "CHANGES=true" >> $GITHUB_ENV
+            exit 0
           fi
+
+          # The GitHub release is cut before the container images reach ghcr.io,
+          # so only bump once every architecture is actually pullable.
+          for arch in aarch64 amd64; do
+            if ! docker manifest inspect "ghcr.io/hassio-addons/base/$arch:$LATEST" > /dev/null 2>&1; then
+              echo "⏭️ ghcr.io/hassio-addons/base/$arch:$LATEST is not published yet, skipping update"
+              echo "CHANGES=false" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+
+          sed -i "s|ghcr\.io/hassio-addons/base/\([^:]*\):[^\"]*|ghcr.io/hassio-addons/base/\1:$LATEST|g" multiappproxy/build.yaml
+          echo "🔄 Base version: $CURRENT → $LATEST"
+          echo "- **hassio-addons/addon-base** → [$LATEST](https://github.com/hassio-addons/addon-base/releases/tag/$TAG)" >> multiappproxy/bot_changelog.md
+          echo "CHANGES=true" >> $GITHUB_ENV
 
       - name: Increment addon version
         if: env.CHANGES == 'true'

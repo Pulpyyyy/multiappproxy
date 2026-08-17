@@ -20,14 +20,19 @@ jobs:
       - name: Check for new base version
         id: check
         run: |
-          LATEST=$(curl -sL https://api.github.com/repos/home-assistant/docker-base/releases/latest \
+          LATEST=$(curl -sL https://api.github.com/repos/hassio-addons/addon-base/releases/latest \
             | grep '"tag_name"' \
             | sed 's/.*"tag_name": "\(.*\)".*/\1/')
-          CURRENT=$(grep -oP 'ghcr\.io/home-assistant/aarch64-base:\K[^"]+' multiappproxy/build.yaml | head -n 1)
+          # Strip leading 'v' as the registry tags don't use it
+          LATEST="${LATEST#v}"
+          CURRENT=$(grep -oP 'ghcr\.io/hassio-addons/base/amd64:\K[^"]+' multiappproxy/build.yaml | head -n 1)
 
           echo "🔍 Latest: $LATEST / Current: $CURRENT"
 
-          if [ "$LATEST" != "$CURRENT" ]; then
+          if [ -z "$LATEST" ]; then
+            echo "⚠️ Could not fetch latest base version, not triggering the pipeline"
+            echo "changes=false" >> $GITHUB_OUTPUT
+          elif [ "$LATEST" != "$CURRENT" ]; then
             echo "🔄 New base image available: $CURRENT → $LATEST"
             echo "changes=true" >> $GITHUB_OUTPUT
           else

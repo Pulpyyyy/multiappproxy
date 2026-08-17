@@ -36,6 +36,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Release the live ref, not the frozen run SHA, so the version read
+          # from config.yaml matches what the pipeline just built.
+          ref: ${{ github.ref }}
 
       - name: Get version and tag
         id: info

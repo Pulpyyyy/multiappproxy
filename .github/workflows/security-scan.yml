@@ -36,6 +36,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
+        with:
+          # Scan the version the pipeline just built, not the frozen run SHA.
+          ref: ${{ github.ref }}
 
       - name: Get image ref
         id: info
