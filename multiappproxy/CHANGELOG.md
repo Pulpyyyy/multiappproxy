@@ -1,3 +1,12 @@
+## 1.4.6
+
+
+### 🛠️ Fixes & Updates
+
+- **hassio-addons/addon-base** → [21.0.4](https://github.com/hassio-addons/addon-base/releases/tag/v21.0.4)
+
+ --- 
+
 ## 1.4.5
 
 
