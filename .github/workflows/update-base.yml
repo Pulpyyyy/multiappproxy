@@ -1,9 +1,10 @@
 name: Update base image version
 
+# Only reachable through the Release Pipeline (orchestrator.yml). Run on its
+# own, the bump is pushed with GITHUB_TOKEN, which triggers no workflow: the
+# version is never tagged, built nor released, and check-releases then sees
+# the base as up to date and never catches up.
 on:
-  schedule:
-    - cron: '0 6 * * *'
-  workflow_dispatch:
   workflow_call:
 
 permissions:
